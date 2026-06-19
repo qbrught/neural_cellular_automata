@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NCSA Interactive</title>
+<style>
+  :root {
+    --bg: #0e0f12;
+    --panel: #15181d;
+    --panel-2: #1c2027;
+    --text: #e5e7eb;
+    --muted: #8b94a3;
+    --accent: #7dd3fc;
+    --accent-2: #38bdf8;
+    --green: #3ec96b;
+    --red: #e0492f;
+    --dead: #1a1d22;
+    --border: #2a2f38;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+                 "Helvetica Neue", Arial, sans-serif;
+    font-size: 13px;
+    height: 100%;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+    gap: 12px;
+    padding: 12px;
+  }
+  .controls-bar {
+    grid-column: 1 / span 2;
+    display: flex; align-items: center; gap: 10px;
+    background: var(--panel);
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  button {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  button:hover { background: #232830; }
+  button.primary { background: var(--accent-2); color: #0e0f12; border-color: var(--accent-2); }
+  button.primary:hover { background: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .stat {
+    display: inline-flex; gap: 6px; align-items: baseline;
+    padding: 4px 10px;
+    background: var(--panel-2);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+  .stat .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat .value { font-variant-numeric: tabular-nums; }
+  .stat .value.green { color: var(--green); }
+  .stat .value.red { color: var(--red); }
+  .spacer { flex: 1; }
+  .grid-panel {
+    background: var(--panel);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    padding: 16px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  canvas {
+    image-rendering: pixelated;
+    border: 1px solid var(--border);
+    background: var(--dead);
+    max-width: 100%;
+    max-height: calc(100vh - 160px);
+  }
+  .side {
+    background: var(--panel);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    padding: 14px;
+    overflow-y: auto;
+  }
+  .side h3 {
+    margin: 8px 0 12px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .field {
+    display: grid;
+    grid-template-columns: 1fr 78px;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .field label {
+    color: var(--text);
+    font-size: 12px;
+  }
+  .field input[type=range] {
+    grid-column: 1 / span 2;
+    width: 100%;
+    accent-color: var(--accent-2);
+  }
+  .field input[type=number] {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    width: 100%;
+  }
+  .field-header {
+    display: flex; justify-content: space-between;
+  }
+  .legend {
+    display: flex; gap: 12px; margin-top: 8px;
+    font-size: 12px; color: var(--muted);
+  }
+  .legend .dot {
+    display: inline-block; width: 10px; height: 10px;
+    border-radius: 2px;
+    vertical-align: middle; margin-right: 4px;
+  }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  .status-indicator {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  .status-indicator.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-indicator.paused  { background: #facc15; }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Top bar: controls and live stats -->
+  <div class="controls-bar">
+    <button id="btn-start" class="primary">Start</button>
+    <button id="btn-pause">Pause</button>
+    <button id="btn-reset">Reset</button>
+    <div class="stat">
+      <span class="label">Step</span>
+      <span class="value" id="stat-step">0</span>
+    </div>
+    <div class="stat">
+      <span class="label">Alive</span>
+      <span class="value green" id="stat-alive">—</span>
+    </div>
+    <div class="stat">
+      <span class="label">Dead</span>
+      <span class="value" id="stat-dead">—</span>
+    </div>
+    <div class="stat">
+      <span class="label">Repro</span>
+      <span class="value green" id="stat-repro">—</span>
+    </div>
+    <div class="stat">
+      <span class="label">Elim</span>
+      <span class="value red" id="stat-elim">—</span>
+    </div>
+    <div class="stat">
+      <span class="label">Loss R</span>
+      <span class="value" id="stat-lossr">—</span>
+    </div>
+    <div class="stat">
+      <span class="label">Loss E</span>
+      <span class="value" id="stat-losse">—</span>
+    </div>
+    <div class="spacer"></div>
+    <span class="status-indicator paused" id="status-dot"></span>
+    <span id="status-text" style="color:var(--muted)">idle</span>
+  </div>
+
+  <!-- Grid canvas -->
+  <div class="grid-panel">
+    <canvas id="grid-canvas" width="400" height="400"></canvas>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--green)"></span>reproducer alive</span>
+      <span><span class="dot" style="background:var(--red)"></span>eliminator alive</span>
+      <span><span class="dot" style="background:var(--dead);border:1px solid var(--border)"></span>dead</span>
+    </div>
+  </div>
+
+  <!-- Sidebar: speed + config -->
+  <div class="side">
+    <h3>Playback</h3>
+    <div class="field">
+      <div class="field-header">
+        <label for="speed-input">Steps / second</label>
+        <span id="speed-display" style="color:var(--muted)">30</span>
+      </div>
+      <input id="speed-input" type="range" min="1" max="200" step="1" value="30">
+    </div>
+
+    <h3 style="margin-top:18px">Config</h3>
+    <div id="config-fields"></div>
+
+    <div class="row" style="margin-top:14px">
+      <button id="btn-apply">Apply &amp; Reset</button>
+      <button id="btn-save">Download .json</button>
+    </div>
+    <div id="config-error" style="color: var(--red); margin-top: 8px; min-height: 16px;"></div>
+  </div>
+
+</div>
+
+<script>
+//----------------------------------------------------------------------------
+// Config field rendering -- driven by metadata from /api/config so this UI
+// auto-adapts to new fields without code changes.
+//----------------------------------------------------------------------------
+
+let CFG_META = [];     // [{name,label,kind,min,max,step}]
+let CFG_VALUES = {};   // current values
+
+async function loadConfig() {
+  const r = await fetch("/api/config");
+  const data = await r.json();
+  CFG_META = data.fields;
+  CFG_VALUES = data.values;
+  renderConfig();
+}
+
+function renderConfig() {
+  const root = document.getElementById("config-fields");
+  root.innerHTML = "";
+  for (const f of CFG_META) {
+    const v = CFG_VALUES[f.name];
+    const wrap = document.createElement("div");
+    wrap.className = "field";
+
+    const header = document.createElement("div");
+    header.className = "field-header";
+    const lbl = document.createElement("label");
+    lbl.textContent = f.label;
+    lbl.htmlFor = `cfg-${f.name}`;
+    header.appendChild(lbl);
+
+    const num = document.createElement("input");
+    num.type = (f.kind === "intornone") ? "text" : "number";
+    num.id = `cfg-${f.name}`;
+    num.value = (v === null || v === undefined) ? "" : v;
+    num.dataset.field = f.name;
+    num.dataset.kind = f.kind;
+    if (f.kind !== "intornone") {
+      num.min = f.min; num.max = f.max; num.step = f.step;
+    }
+    wrap.appendChild(header);
+    header.appendChild(num);
+
+    if (f.kind !== "intornone") {
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = f.min; slider.max = f.max; slider.step = f.step;
+      slider.value = (v === null || v === undefined) ? f.min : v;
+      slider.dataset.target = `cfg-${f.name}`;
+      slider.addEventListener("input", () => {
+        num.value = slider.value;
+      });
+      num.addEventListener("input", () => {
+        if (num.value !== "") slider.value = num.value;
+      });
+      wrap.appendChild(slider);
+    }
+    root.appendChild(wrap);
+  }
+}
+
+function collectConfig() {
+  const out = {};
+  for (const f of CFG_META) {
+    const el = document.getElementById(`cfg-${f.name}`);
+    if (!el) continue;
+    if (f.kind === "intornone") {
+      out[f.name] = (el.value === "") ? null : el.value;
+    } else {
+      out[f.name] = el.value;
+    }
+  }
+  return out;
+}
+
+//----------------------------------------------------------------------------
+// Frame rendering
+//----------------------------------------------------------------------------
+
+const canvas = document.getElementById("grid-canvas");
+const ctx = canvas.getContext("2d");
+
+// Pre-compute the colour palette for the 3 cell states.
+// 0 dead, 1 repro alive, 2 elim alive
+const PALETTE_RGBA = new Uint8ClampedArray([
+  0x1a, 0x1d, 0x22, 0xff,   // dead
+  0x3e, 0xc9, 0x6b, 0xff,   // repro
+  0xe0, 0x49, 0x2f, 0xff,   // elim
+]);
+
+let lastN = 0;
+let imageData = null;
+
+function renderFrame(frame) {
+  const N = frame.N;
+  // Decode base64 grid bytes.
+  const bin = atob(frame.grid_b64);
+  const cells = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) cells[i] = bin.charCodeAt(i);
+
+  if (N !== lastN) {
+    lastN = N;
+    // Pick a sensible display size: aim for ~600px on the longest side.
+    const target = 600;
+    const cellSize = Math.max(1, Math.floor(target / N));
+    canvas.width = N;
+    canvas.height = N;
+    canvas.style.width = (N * cellSize) + "px";
+    canvas.style.height = (N * cellSize) + "px";
+    imageData = ctx.createImageData(N, N);
+  }
+
+  const buf = imageData.data;
+  for (let i = 0; i < cells.length; i++) {
+    const k = cells[i] * 4;
+    const o = i * 4;
+    buf[o]   = PALETTE_RGBA[k];
+    buf[o+1] = PALETTE_RGBA[k+1];
+    buf[o+2] = PALETTE_RGBA[k+2];
+    buf[o+3] = PALETTE_RGBA[k+3];
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  // Update stats.
+  document.getElementById("stat-step").textContent =
+    frame.n_steps == null ? `${frame.step}` : `${frame.step} / ${frame.n_steps}`;
+  document.getElementById("stat-alive").textContent = frame.alive;
+  document.getElementById("stat-dead").textContent  = frame.dead;
+  document.getElementById("stat-repro").textContent = frame.reproducer_alive;
+  document.getElementById("stat-elim").textContent  = frame.eliminator_alive;
+  document.getElementById("stat-lossr").textContent =
+    frame.loss_reproduce_mean == null ? "—" : frame.loss_reproduce_mean.toFixed(3);
+  document.getElementById("stat-losse").textContent =
+    frame.loss_eliminate_mean == null ? "—" : frame.loss_eliminate_mean.toFixed(3);
+
+  // Status indicator.
+  const dot = document.getElementById("status-dot");
+  const txt = document.getElementById("status-text");
+  if (frame.running) {
+    dot.className = "status-indicator running";
+    txt.textContent = "running";
+  } else {
+    dot.className = "status-indicator paused";
+    txt.textContent = (frame.n_steps != null && frame.step >= frame.n_steps) ? "finished" : "paused";
+  }
+}
+
+//----------------------------------------------------------------------------
+// WebSocket
+//----------------------------------------------------------------------------
+
+let ws = null;
+function connectWS() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.addEventListener("message", (ev) => {
+    try {
+      const frame = JSON.parse(ev.data);
+      if (frame.type === "frame") renderFrame(frame);
+    } catch (e) { console.error(e); }
+  });
+  ws.addEventListener("close", () => {
+    setTimeout(connectWS, 1000);
+  });
+  ws.addEventListener("error", (e) => console.warn("ws error", e));
+}
+
+//----------------------------------------------------------------------------
+// Buttons / actions
+//----------------------------------------------------------------------------
+
+async function api(method, path, body) {
+  const r = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return r.json().catch(() => ({}));
+}
+
+function setError(msg) {
+  document.getElementById("config-error").textContent = msg || "";
+}
+
+document.getElementById("btn-start").addEventListener("click", () => api("POST", "/api/start"));
+document.getElementById("btn-pause").addEventListener("click", () => api("POST", "/api/pause"));
+document.getElementById("btn-reset").addEventListener("click", async () => {
+  setError("");
+  const values = collectConfig();
+  const r = await api("POST", "/api/reset", { values });
+  if (r && r.ok === false) setError(r.error || "reset failed");
+});
+document.getElementById("btn-apply").addEventListener("click", async () => {
+  setError("");
+  const values = collectConfig();
+  const r = await api("POST", "/api/config", { values, reset: true });
+  if (r && r.ok === false) setError(r.error || "config invalid");
+});
+document.getElementById("btn-save").addEventListener("click", () => {
+  // Trigger download via the server's stream endpoint (uses currently-applied config).
+  window.location.href = "/api/config/download";
+});
+
+const speedInput = document.getElementById("speed-input");
+const speedDisplay = document.getElementById("speed-display");
+speedInput.addEventListener("input", () => {
+  speedDisplay.textContent = speedInput.value;
+});
+speedInput.addEventListener("change", () => {
+  api("POST", "/api/speed", { steps_per_second: parseFloat(speedInput.value) });
+});
+
+//----------------------------------------------------------------------------
+// Boot
+//----------------------------------------------------------------------------
+
+(async function init() {
+  await loadConfig();
+  connectWS();
+})();
+</script>
+</body>
+</html>
