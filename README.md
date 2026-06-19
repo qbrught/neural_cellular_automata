@@ -1,1 +1,84 @@
-# neural_cellular_automata
+# Neural State-Aware Cellular Automaton
+
+**Version 1.0**
+
+A 2D cellular automaton where each cell has a fixed goal (reproduce or eliminate) and learns per-cell MLP parameters to pursue that goal. Survival is governed by a fixed global CA rule that cells cannot change but learn to exploit.
+
+![animation](animation.gif)
+
+*20×20 grid, 300 steps. Green = alive reproducer, red = alive eliminator, dark = dead.*
+
+## New changes from initial POC
+
+The headline change is **Path 1**: the local update MLP `f` now actually learns.
+
+In v0.0.1, the survival rule only listened to ψ's vote output, so only ψ received gradient. `f` ran every step but its parameters never moved. v0.0.2 fixes that by adding a second learnable channel into the survival rule:
+
+$$p^{t+1}_i = \sigma(w_0 + w_1 A_i + w_2 R_i + w_3 E_i + w_4 V_i + w_5 \tanh(\mathbf{u} \cdot \tilde{s}^t_i))$$
+
+Where $\tilde{s}^t_i$ is `f`'s proposed next-state output and $\mathbf{u}$ is a hand-set fixed projection vector. The tanh bounds the f-signal contribution so it can't trivially saturate the rule (without it, every cell learns "set $\mathbf{u} \cdot s$ very large, live forever" and the ecosystem freezes).
+
+The loss now also includes a self-survival term:
+
+$$\ell_i = -p^{t+1}_i + \text{sign}(g_i) \cdot \sum_{j \in \mathcal{N}(i)} p^{t+1}_j$$
+
+Both goal types want themselves alive (so they can act next step); they differ on what they want for neighbours.
+
+Together these give `f` a real gradient channel without breaking the locality property: cell $i$'s parameters still only update from cell $i$'s loss.
+
+A new learn config flag toggles this channel. With learn=True (default), f learns as described above. With learn=False, f's parameters stay frozen at init — recovering the v0.0.1 behaviour where f runs every step but never moves. This makes it cheap to A/B the two regimes from a shared seed and watch directly how a learning f changes the ecosystem's trajectory versus the ψ-only baseline. (ψ continues to learn either way; the flag only gates f.)
+## What this demonstrates
+
+- A 2D grid of cells, each with its own ψ (message function) and `f` (local update) MLPs.
+- A fixed survival rule that combines: neighbour alive count, reproducer count, eliminator count, weighted vote sum, and a bounded f-signal channel.
+- Per-cell, per-step gradient descent on a local loss.
+- **Both ψ and `f` learn**. Two separate channels — votes for influencing neighbours, f-signal for influencing self-survival.
+- Gradient locality: cell *i*'s update depends only on cell *i*'s parameters. Verified by per-cell test across both ψ and `f` weights.
+- Bit-exact reproducibility from a single seed.
+
+## Key design choices
+
+**The vote channel.** The spec's survival rule as originally written had no path from learnable parameters to the loss. We extended ψ to emit a vote scalar per outgoing edge, with the survival rule reading the rho-weighted sum of incoming votes. This gives ψ a way to influence neighbours' survival.
+
+**The f-signal channel.** Reading `f`'s proposed next-state via a fixed projection $\mathbf{u}$ and a tanh-bounded weight. This gives `f` a way to influence self-survival, which is what gets it any gradient at all.
+
+**Gradient locality via detach.** Every place where a neighbour's contribution to a survival probability appears, we detach everything except the current cell's own contribution. The result is that `loss.sum().backward()` produces per-cell gradients that respect locality without any per-cell loops.
+
+The hand-tuned weights, per-cell goals, per-cell communication rates, and the projection vector $\mathbf{u}$ all remain fixed at init.
+
+
+## Project structure
+
+```
+ncsa/
+  config.py        # hyperparameters + seed (including w5 and u_seed)
+  parameters.py    # per-cell ψ and f MLP weights, batched forward
+  state.py         # per-cell state (x, s, h, goals, rho)
+  grid.py          # Grid container, toroidal Moore-neighbourhood gather
+  dynamics.py      # message pass, local update, survival rule (with f-signal)
+  learning.py      # per-cell loss (self + neighbour terms), locality SGD step
+  simulate.py      # full loop, trajectory writing
+  visualise.py     # render trajectory.npz to summary.png / animation.gif
+  run.py           # CLI
+  tests/           # 7 test files, all green
+```
+
+## Run simulation stand-alone
+
+```bash
+pip install torch numpy matplotlib
+python run.py --visualise                        # defaults
+python run.py --seed 7 --n-steps 500 --visualise # custom
+```
+
+Outputs land in `runs/<timestamp>/` as `config.json`, `trajectory.npz`, `params_final.pt`, and (with `--visualise`) `summary.png` and `animation.gif`.
+
+## Interactive UI
+
+```bash
+pip install fastapi uvicorn websockets
+python server.py
+# open http://127.0.0.1:8765
+```
+
+Sidebar sliders for every Config field; start/pause/reset buttons; live grid + alive/dead/loss counters; speed slider; download-current-config button. Setting `n_steps` blank runs indefinitely. The UI auto-renders new Config fields without code changes — only `UI_FIELDS` in `server.py` needs editing.
