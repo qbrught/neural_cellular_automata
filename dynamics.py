@@ -115,7 +115,10 @@ def hard_survival(inputs: SurvivalInputs, cfg: Config) -> Tensor:
     Threshold at p > 0.5, which is equivalent to logit > 0. Using the logit
     directly avoids the sigmoid roundtrip.
     """
-    return (survival_logit(inputs, cfg) > 0).float()
+    alive_next = (survival_logit(inputs, cfg) > 0).float()
+    if cfg.require_alive_neighbour:
+        alive_next = alive_next * (inputs.A > 0).float()
+    return alive_next
 
 
 # Message passing

@@ -55,6 +55,7 @@ UI_FIELDS = [
     ("hidden", "MLP hidden", "int", 4, 128, 1),
     ("eta", "Learning rate η", "float", 0.0, 1.0, 0.001),
     ("learn", "Learn (0/1)", "int", 0, 1, 1),
+    ("require_alive_neighbour", "Require alive nbr (0/1)", "int", 0, 1, 1),
     ("w0", "w₀ bias", "float", -5.0, 5.0, 0.01),
     ("w1", "w₁ alive", "float", -5.0, 5.0, 0.01),
     ("w2", "w₂ reproducer", "float", -5.0, 5.0, 0.01),
@@ -91,21 +92,21 @@ def payload_to_cfg(values: dict) -> Config:
     out: dict = {}
     field_kinds = {n: kind for (n, _l, kind, _mn, _mx, _s) in UI_FIELDS}
     for k, v in values.items():
-            if k not in field_kinds:
-                # Unknown field; ignore (lets us add/remove without breaking the UI).
-                continue
-            kind = field_kinds[k]
-            if k == "learn":
-                out[k] = bool(int(v))
-            elif kind == "intornone":
-                if v is None or v == "" or v == "null":
-                    out[k] = None
-                else:
-                    out[k] = int(v)
-            elif kind == "int":
+        if k not in field_kinds:
+            # Unknown field; ignore (lets us add/remove without breaking the UI).
+            continue
+        kind = field_kinds[k]
+        if k in ("learn", "require_alive_neighbour"):
+            out[k] = bool(int(v))
+        elif kind == "intornone":
+            if v is None or v == "" or v == "null":
+                out[k] = None
+            else:
                 out[k] = int(v)
-            elif kind == "float":
-                out[k] = float(v)
+        elif kind == "int":
+            out[k] = int(v)
+        elif kind == "float":
+            out[k] = float(v)
     # Fall back to defaults for anything not specified.
     defaults = Config()
     full = {f.name: getattr(defaults, f.name) for f in fields(Config)}

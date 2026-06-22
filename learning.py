@@ -103,7 +103,8 @@ def compute_local_losses(
         + cfg.w5 * torch.tanh(f_signal_self_kept)
     )
     p_self = torch.sigmoid(logit_self)        # (N, N)
-
+    if cfg.require_alive_neighbour:
+        p_self = p_self * (surv_in.A > 0).float()
     # Term 2: signed sum over neighbours of p_j, with the existing V-detach
     # trick plus new f_signal detach.
     V_at_neighbour = gather_neighbours(surv_in.V)       # (N, N, 8)
@@ -133,6 +134,8 @@ def compute_local_losses(
         + cfg.w5 * torch.tanh(f_signal_at_neighbour_d)
     )
     p_at_neighbour = torch.sigmoid(logit_at_neighbour)  # (N, N, 8)
+    if cfg.require_alive_neighbour:
+        p_at_neighbour = p_at_neighbour * (A_at_neighbour > 0).float()
     sum_p_neighbours = p_at_neighbour.sum(dim=2)        # (N, N)
 
     # Combine: self term (always wants self alive) + signed neighbour term.

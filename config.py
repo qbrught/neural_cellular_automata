@@ -25,6 +25,7 @@ class Config:
     eta: float = 0.01  # SGD learning rate
     n_steps: int | None = 1000  # simulation steps; None means run indefinitely
     learn: bool = True
+    require_alive_neighbour: bool = True  # if True, a cell needs A_i > 0 to be alive next step
     # ---- Survival rule weights ----
     # Logistic combination of:
     #   w0: bias (negative -> bias toward death)
