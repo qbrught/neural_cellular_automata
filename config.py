@@ -23,7 +23,7 @@ class Config:
 
     # ---- Learning ----
     eta: float = 0.01  # SGD learning rate
-    n_steps: int | None = 1000  # simulation steps; None means run indefinitely
+    n_steps: int | None = 4000  # simulation steps; None means run indefinitely
     learn: bool = True
     require_alive_neighbour: bool = True  # if True, a cell needs A_i > 0 to be alive next step
     # ---- Survival rule weights ----
@@ -34,18 +34,18 @@ class Config:
     #   w3: alive eliminator neighbours
     #   w4: weighted vote sum (sum over neighbours of rho_j * v_{j->i})
     #   w5: f-signal = u . s_proposed_i  (Path 1: gives f a gradient channel)
-    w0: float = -1.0
-    w1: float = 0.5
-    w2: float = 0.5
-    w3: float = -0.5
+    w0: float = -2.15
+    w1: float = -2.06
+    w2: float = 3.51
+    w3: float = -1.87
     w4: float = 0.5
-    w5: float = 0.5
+    w5: float = -1.34
 
     # ---- Initialisation ----
-    seed: int = 0
+    seed: int = 68875
     init_noise_std: float = 0.01  # std of noise added to identical-init MLP weights
-    init_alive_prob: float = 0.5  # probability each cell starts alive
-    u_seed: int = 12345  # seed for the fixed projection vector u (separate from run seed)
+    init_alive_prob: float = 0.19  # probability each cell starts alive
+    u_seed: int = 119725  # seed for the fixed projection vector u (separate from run seed)
 
     # ---- Output ----
     output_dir: str = "runs"
