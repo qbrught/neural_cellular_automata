@@ -3,7 +3,8 @@
 Usage:
     export GEMINI_API_KEY=...
     python discover.py --max-cycles 30 --target-discoveries 5
-    python discover.py --max-cycles 10 --dry-run   # sample + prefilter only
+    python discover.py --max-cycles 10 --dry-run          # heuristic-guided, no API
+    python discover.py --no-guided --max-cycles 20        # pure random search
 """
 
 from __future__ import annotations
@@ -17,7 +18,10 @@ from discovery.loop import LoopConfig, run_discovery
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Discover interesting NCSA configs via random search + Gemini Flash.",
+        description=(
+            "Discover interesting NCSA configs via guided VLM search "
+            "(Gemini Flash) or pure random sampling."
+        ),
     )
     p.add_argument(
         "--max-cycles",
@@ -53,16 +57,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=None,
         help=(
-            "RNG seed for config sampling only (not simulation seeds). "
-            "Default: fresh random seed each process so successive runs explore "
-            "different configs. Pass an int to reproduce a previous search path."
+            "RNG seed for sampling / explore jumps. Default: fresh each process. "
+            "Pass an int to reproduce a previous search path."
         ),
     )
     p.add_argument(
         "--mutate-prob",
         type=float,
         default=0.0,
-        help="Probability of mutating a random catalog config instead of pure random.",
+        help="When exploring/random, chance to mutate a catalog config (default: 0).",
+    )
+    p.add_argument(
+        "--guided",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="VLM-guided next configs (default: on). Use --no-guided for pure random.",
+    )
+    p.add_argument(
+        "--explore-prob",
+        type=float,
+        default=0.15,
+        help=(
+            "With --guided, probability of ignoring the VLM proposal and taking a "
+            "pure random jump (default: 0.15)."
+        ),
     )
     p.add_argument(
         "--keep-rejects",
@@ -72,7 +90,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--dry-run",
         action="store_true",
-        help="Run sims + prefilter only; skip VLM and never save discoveries.",
+        help="Sims + prefilter only; heuristic guidance if --guided; no VLM/saves.",
     )
     p.add_argument(
         "--verbose-sim",
@@ -100,6 +118,9 @@ def main(argv: list[str] | None = None) -> int:
     if not 0.0 <= args.mutate_prob <= 1.0:
         print("error: --mutate-prob must be in [0, 1]", file=sys.stderr)
         return 2
+    if not 0.0 <= args.explore_prob <= 1.0:
+        print("error: --explore-prob must be in [0, 1]", file=sys.stderr)
+        return 2
     if args.n_steps <= 0 or args.N <= 0:
         print("error: --n-steps and --N must be positive", file=sys.stderr)
         return 2
@@ -112,11 +133,13 @@ def main(argv: list[str] | None = None) -> int:
         device=args.device,
         model=args.model,
         output_root=args.output_root,
-        sampler_seed=args.sampler_seed,  # None → loop picks a fresh seed
+        sampler_seed=args.sampler_seed,
         mutate_prob=args.mutate_prob,
         keep_rejects=args.keep_rejects,
         dry_run=args.dry_run,
         verbose_sim=args.verbose_sim,
+        guided=args.guided,
+        explore_prob=args.explore_prob,
     )
     run_discovery(loop_cfg)
     return 0
