@@ -136,16 +136,29 @@ def compute_local_losses(
     p_at_neighbour = torch.sigmoid(logit_at_neighbour)  # (N, N, 8)
     if cfg.require_alive_neighbour:
         p_at_neighbour = p_at_neighbour * (A_at_neighbour > 0).float()
-    sum_p_neighbours = p_at_neighbour.sum(dim=2)        # (N, N)
 
+    # =========================================================================
     # Combine: self term (always wants self alive) + signed neighbour term.
-    sign = torch.where(
-        state.goals == GOAL_REPRODUCE,
-        torch.full_like(sum_p_neighbours, -1.0),
-        torch.full_like(sum_p_neighbours, +1.0),
-    )
+    # =========================================================================
+    # KIN-SELECTIVE LOSS.
+    #   reproducer i: wants REPRODUCER neighbours alive, ELIMINATOR neighbours dead
+    #   eliminator i: wants ALL neighbours dead (unchanged)
+    # Per-neighbour coefficient c[i, k] multiplies p_at_neighbour[i, k].
+    nb_is_repro = gather_neighbours(
+        (state.goals == GOAL_REPRODUCE).float()
+    )                                                    # (N, N, 8)
+    i_is_repro = (state.goals == GOAL_REPRODUCE).float().unsqueeze(-1)  # (N, N, 1)
+
+    # reproducer's coefficients: -1 on reproducer neighbours, +1 on eliminators
+    coef_repro = -1.0 * nb_is_repro + 1.0 * (1.0 - nb_is_repro)
+    # eliminator's coefficients: +1 on everyone (kill all)
+    coef_elim = torch.ones_like(nb_is_repro)
+
+    coef = i_is_repro * coef_repro + (1.0 - i_is_repro) * coef_elim   # (N, N, 8)
+    weighted_neighbours = (coef * p_at_neighbour).sum(dim=2)          # (N, N)
+
     self_term = -p_self                                  # both goals want self alive
-    return self_term + sign * sum_p_neighbours           # (N, N)
+    return self_term + weighted_neighbours               # (N, N)
 
 
 def gradient_step(

@@ -151,16 +151,16 @@ def _build_psi_inputs(state: State) -> Tensor:
     called: the message from j to i, using j's parameters.
 
     To vectorise this, we work from the receiver's perspective: for each
-    cell i, we gather the 8 sender-side states (s_j, h_j, x_j) and pair
-    them with i's own (s_i, h_i, x_i).
+    cell i, we gather the 8 sender-side states (s_j, h_j, x_j, g_j) and pair
+    them with i's own (s_i, h_i, x_i, g_i).
 
     The ψ MLP for the *sender* is what we need to apply. So later we'll
     also need a per-edge sender-parameter tensor. This function only builds
     the inputs.
 
     Returns:
-        psi_inputs: (N, N, 8, 4d + 2)
-            Along the last axis: [s_j, h_j, x_j, s_i, h_i, x_i]
+        psi_inputs: (N, N, 8, 4d + 4)
+            Along the last axis: [s_j, h_j, x_j, g_j, s_i, h_i, x_i, g_i]
             where j is the neighbour and i is the receiver (cell at (n,m)).
     """
     # Receiver-side scalars/vectors (just the cell's own).
@@ -172,14 +172,17 @@ def _build_psi_inputs(state: State) -> Tensor:
     s_j = gather_neighbours(state.s)    # (N, N, 8, d)
     h_j = gather_neighbours(state.h)    # (N, N, 8, d)
     x_j = gather_neighbours(state.x).unsqueeze(-1)  # (N, N, 8, 1)
+    g_j = gather_neighbours(state.goals.float()).unsqueeze(-1)  # (N, N, 8, 1)
+    g_i = state.goals.float().unsqueeze(-1)                      # (N, N, 1)
 
     # Broadcast receiver across the 8 sender slots.
     K = 8
     s_i_exp = s_i.unsqueeze(2).expand(-1, -1, K, -1)
     h_i_exp = h_i.unsqueeze(2).expand(-1, -1, K, -1)
     x_i_exp = x_i.unsqueeze(2).expand(-1, -1, K, -1)
+    g_i_exp = g_i.unsqueeze(2).expand(-1, -1, K, -1)
 
-    return torch.cat([s_j, h_j, x_j, s_i_exp, h_i_exp, x_i_exp], dim=-1)
+    return torch.cat([s_j, h_j, x_j, g_j, s_i_exp, h_i_exp, x_i_exp, g_i_exp], dim=-1)
 
 
 def _gather_sender_params(W: Tensor) -> Tensor:
@@ -236,7 +239,7 @@ def message_pass(state: State, params: Parameters) -> MessagePassOutput:
     out_psi = psi_out_dim(d)
     assert out_psi == d + 1
 
-    psi_inputs = _build_psi_inputs(state)           # (N, N, 8, 4d+2)
+    psi_inputs = _build_psi_inputs(state)           # (N, N, 8, 4d+4)
     psi_out = _psi_forward_per_edge(psi_inputs, params)  # (N, N, 8, d+1)
 
     # Split into messages and votes.
@@ -287,8 +290,10 @@ def _compute_outgoing_votes(state: State, params: Parameters) -> Tensor:
     s_r = gather_neighbours(state.s)
     h_r = gather_neighbours(state.h)
     x_r = gather_neighbours(state.x).unsqueeze(-1)
+    g_r = gather_neighbours(state.goals.float()).unsqueeze(-1)   # receiver goal
+    g_i = state.goals.float().unsqueeze(-1).unsqueeze(2).expand(-1, -1, 8, -1)
 
-    psi_in = torch.cat([s_i, h_i, x_i, s_r, h_r, x_r], dim=-1)  # (N, N, 8, 4d+2)
+    psi_in = torch.cat([s_i, h_i, x_i, g_i, s_r, h_r, x_r, g_r], dim=-1)  # (N,N,8,4d+4)
 
     # Apply ψ using i's OWN per-cell weights (no gather), broadcasting over edges.
     psi_out = batched_mlp(psi_in, params.psi_W1, params.psi_b1,

@@ -17,9 +17,9 @@ Stacked across the grid the leading dims become (N, N, ...).
 
 Dimensions:
     ψ (message function): input is (sender_state, sender_memory, sender_alive,
-       receiver_state, receiver_memory, receiver_alive). Output is
-       (message_vector_of_dim_d, vote_scalar).
-       in_dim_psi  = 2*d + 2*d + 2 = 4d + 2
+       sender_goal, receiver_state, receiver_memory, receiver_alive,
+       receiver_goal). Output is (message_vector_of_dim_d, vote_scalar).
+       in_dim_psi  = 2*d + 2*d + 4 = 4d + 4
        out_dim_psi = d + 1
 
     f (local update): input is (own_state, own_memory, own_alive,
@@ -37,7 +37,7 @@ from torch import Tensor
 
 
 def psi_in_dim(d: int) -> int:
-    return 4 * d + 2
+    return 4 * d + 4  # +2 for sender goal, receiver goal
 
 
 def psi_out_dim(d: int) -> int:
