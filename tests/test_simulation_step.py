@@ -30,11 +30,12 @@ def test_step_output_shapes():
     assert out.next_state.x.shape == (N, N)
     assert out.next_state.s.shape == (N, N, d)
     assert out.next_state.h.shape == (N, N, d)
-    assert out.outgoing_votes.shape == (N, N, 8)
+    assert out.outgoing_votes.shape == (N, N, 8, 2)
     assert out.s_proposed.shape == (N, N, d)
     assert out.h_proposed.shape == (N, N, d)
     for t in [out.survival_inputs.A, out.survival_inputs.R,
-              out.survival_inputs.E, out.survival_inputs.V]:
+              out.survival_inputs.E, out.survival_inputs.V_kin,
+              out.survival_inputs.V_foe]:
         assert t.shape == (N, N)
     print("test_step_output_shapes OK")
 

@@ -9,12 +9,14 @@ is a function of this step's votes).
 Locality: cell i's gradient must depend only on params[i]. Other cells'
 contributions to the vote sums are detached.
 
-Implementation: we already have `outgoing_votes` of shape (N, N, 8) where
-entry [i, j, k_out] = v_{(i,j) -> neighbour-k_out-of-(i,j)}. This tensor's
-[i, j, :] slice depends only on params[i, j]. For each cell, we construct
-its loss using (V_neighbour.detach() + my_outgoing_to_neighbour - my_outgoing_to_neighbour.detach()),
-which equals V_neighbour numerically but, in the backward graph, only the
-own-outgoing-vote term carries gradient.
+Typed votes (step A): survival uses two channels —
+  V_kin = sum of help votes from same-goal neighbours
+  V_foe = sum of harm votes from opposite-goal neighbours
+
+outgoing_votes is (N, N, 8, 2) with [...,0]=help and [...,1]=harm (rho/x
+gated, not goal-routed). When patching a neighbour's V, only the channel
+that actually reaches that neighbour (kin→help or foe→harm) carries
+gradient from this cell.
 
 The result: loss.sum().backward() populates params.grad correctly with each
 cell's gradient living only at its own (i, j) slot.
@@ -22,27 +24,40 @@ cell's gradient living only at its own (i, j) slot.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import torch
 from torch import Tensor
 
 from config import Config
-from dynamics import (
-    StepOutput,
-    SurvivalInputs,
-    soft_survival,
-    compute_survival_inputs,
-)
-from grid import NEIGHBOUR_OFFSETS, gather_neighbours
+from dynamics import StepOutput
+from grid import gather_neighbours
 from parameters import Parameters
 from state import GOAL_REPRODUCE, State
-
 
 # In the canonical NEIGHBOUR_OFFSETS ordering, neighbour-k of cell i and i itself
 # from that neighbour's perspective are at "opposite" slots: k_in = 7 - k_out.
 # (This invariant is checked in tests/test_vote_consistency.py.)
 OPPOSITE_SLOT = 7  # k_in = OPPOSITE_SLOT - k_out
+
+
+def _survival_logit_parts(
+    A: Tensor,
+    R: Tensor,
+    E: Tensor,
+    V_kin: Tensor,
+    V_foe: Tensor,
+    f_signal: Tensor,
+    cfg: Config,
+) -> Tensor:
+    """Linear survival logit from components (same formula as dynamics)."""
+    return (
+        cfg.w0
+        + cfg.w1 * A
+        + cfg.w2 * R
+        + cfg.w3 * E
+        + cfg.w4_help * V_kin
+        + cfg.w4_harm * V_foe
+        + cfg.w5 * torch.tanh(f_signal)
+    )
 
 
 def compute_local_losses(
@@ -52,86 +67,88 @@ def compute_local_losses(
 ) -> Tensor:
     """Compute per-cell local losses with gradient-locality detach tricks.
 
-    Loss structure (Path 1, with self-survival term):
+    Loss structure (Path 1 + kin-selective neighbour term):
 
-        L_i = -p_i  +  sign(g_i) * sum_{j in N(i)} p_j
+        L_i = -p_i + sum_k c_{i,k} * p_{nbr k}
 
-    where sign(g_i) = -1 for reproducers, +1 for eliminators. The -p_i term
-    is unsigned across goals: both reproducers and eliminators prefer to be
-    alive themselves (so they can act next step). They differ only on what
-    they want for their neighbours.
+    where c depends on goals (reproducers protect kin / pressure foes;
+    eliminators pressure all neighbours). The -p_i term is unsigned:
+    both types want themselves alive.
 
     Gradient paths (only ones we want to KEEP):
-      * p_i through u . s_proposed_i  ->  this cell's f params      (NEW in Path 1)
-      * p_j (j neighbour) through V_j ->  this cell's psi params via outgoing vote
-                                          (existing detach trick)
+      * p_i through u . s_proposed_i  ->  this cell's f params
+      * p_j through V_kin_j / V_foe_j ->  this cell's psi via the routed
+                                          outgoing vote channel
 
     Gradient paths we must KILL via detach:
-      * p_i through V_i (votes IN to i): would leak into 8 neighbours' psi.
-      * p_j through u . s_proposed_j: would leak into j's f params.
+      * p_i through V_kin_i / V_foe_i (votes IN to i)
+      * p_j through u . s_proposed_j
 
     Returns:
-        Tensor of shape (N, N): per-cell losses. Sum -> .backward() respects
-        locality automatically.
+        Tensor of shape (N, N): per-cell losses.
     """
-    N = state.N
-    surv_in = step_out.survival_inputs       # A, R, E, V, f_signal at step t
-    outgoing = step_out.outgoing_votes       # (N, N, 8): v_{i -> nbr-k}
-    s_proposed = step_out.s_proposed         # (N, N, d): f's proposed outputs
-
-    # We need to compute the projection u . s_proposed but with controlled
-    # gradient flow. We don't have u here directly -- it's encoded as the
-    # f_signal field of surv_in already (f_signal = (s_proposed * u).sum(-1)).
-    # Good: that means f_signal is the per-cell scalar, and we just need to
-    # decide whether to detach it.
+    surv_in = step_out.survival_inputs
+    outgoing = step_out.outgoing_votes       # (N, N, 8, 2): help, harm
     f_signal = surv_in.f_signal              # (N, N), differentiable through f
 
-    # Term 1: -p_i (self-survival), with V_i detached.
-    # We want p_i with gradient ONLY through f_signal_i, not through V_i.
-    V_self_detached = surv_in.V.detach()
-    f_signal_self_kept = f_signal             # KEEP gradient through f
+    # Term 1: -p_i (self-survival), with both vote channels detached.
     A_d = surv_in.A.detach()
     R_d = surv_in.R.detach()
     E_d = surv_in.E.detach()
-
-    logit_self = (
-        cfg.w0
-        + cfg.w1 * A_d
-        + cfg.w2 * R_d
-        + cfg.w3 * E_d
-        + cfg.w4 * V_self_detached
-        + cfg.w5 * torch.tanh(f_signal_self_kept)
+    logit_self = _survival_logit_parts(
+        A_d, R_d, E_d,
+        surv_in.V_kin.detach(),
+        surv_in.V_foe.detach(),
+        f_signal,  # KEEP gradient through f
+        cfg,
     )
     p_self = torch.sigmoid(logit_self)        # (N, N)
     if cfg.require_alive_neighbour:
         p_self = p_self * (surv_in.A > 0).float()
-    # Term 2: signed sum over neighbours of p_j, with the existing V-detach
-    # trick plus new f_signal detach.
-    V_at_neighbour = gather_neighbours(surv_in.V)       # (N, N, 8)
-    A_at_neighbour = gather_neighbours(surv_in.A)       # (N, N, 8)
-    R_at_neighbour = gather_neighbours(surv_in.R)       # (N, N, 8)
-    E_at_neighbour = gather_neighbours(surv_in.E)       # (N, N, 8)
-    f_signal_at_neighbour = gather_neighbours(f_signal) # (N, N, 8)
 
-    # V-detach trick on neighbours' V: keep only my own outgoing vote.
-    my_vote = outgoing                                  # (N, N, 8), differentiable
-    V_patched = (
-        V_at_neighbour.detach()
-        - my_vote.detach()
-        + my_vote
-    )                                                   # (N, N, 8)
+    # Term 2: neighbours' p_j with V-detach trick on both channels.
+    V_kin_at_neighbour = gather_neighbours(surv_in.V_kin)   # (N, N, 8)
+    V_foe_at_neighbour = gather_neighbours(surv_in.V_foe)   # (N, N, 8)
+    A_at_neighbour = gather_neighbours(surv_in.A)           # (N, N, 8)
+    R_at_neighbour = gather_neighbours(surv_in.R)           # (N, N, 8)
+    E_at_neighbour = gather_neighbours(surv_in.E)           # (N, N, 8)
+    f_signal_at_neighbour = gather_neighbours(f_signal)     # (N, N, 8)
+
+    my_help = outgoing[..., 0]                              # (N, N, 8)
+    my_harm = outgoing[..., 1]                              # (N, N, 8)
+
+    if cfg.typed_votes:
+        # Outgoing edge k reaches a neighbour whose goal matches mine?
+        my_goals = state.goals.float().unsqueeze(-1)        # (N, N, 1)
+        nbr_goals = gather_neighbours(state.goals.float())  # (N, N, 8)
+        same_out = (my_goals == nbr_goals).float()          # (N, N, 8)
+        diff_out = 1.0 - same_out
+        # Only the routed channel reaches that neighbour:
+        my_to_V_kin = my_help * same_out
+        my_to_V_foe = my_harm * diff_out
+    else:
+        # Original: single indiscriminate vote (help head) reaches everyone.
+        my_to_V_kin = my_help
+        my_to_V_foe = torch.zeros_like(my_help)
+
+    V_kin_patched = (
+        V_kin_at_neighbour.detach() - my_to_V_kin.detach() + my_to_V_kin
+    )
+    V_foe_patched = (
+        V_foe_at_neighbour.detach() - my_to_V_foe.detach() + my_to_V_foe
+    )
 
     # f_signal at neighbours: depends on the neighbour's f, never mine.
-    # Detach entirely.
     f_signal_at_neighbour_d = f_signal_at_neighbour.detach()
 
-    logit_at_neighbour = (
-        cfg.w0
-        + cfg.w1 * A_at_neighbour.detach()
-        + cfg.w2 * R_at_neighbour.detach()
-        + cfg.w3 * E_at_neighbour.detach()
-        + cfg.w4 * V_patched
-        + cfg.w5 * torch.tanh(f_signal_at_neighbour_d)
+    logit_at_neighbour = _survival_logit_parts(
+        A_at_neighbour.detach(),
+        R_at_neighbour.detach(),
+        E_at_neighbour.detach(),
+        V_kin_patched,
+        V_foe_patched,
+        f_signal_at_neighbour_d,
+        cfg,
     )
     p_at_neighbour = torch.sigmoid(logit_at_neighbour)  # (N, N, 8)
     if cfg.require_alive_neighbour:

@@ -50,7 +50,7 @@ def living_radius(x: torch.Tensor) -> float:
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     cfg = Config(N=GRID_N, n_steps=STEPS, seed=7,
-                 w0=-0.05, w1=0.4, w2=0.4, w3=-0.4, w4=0.6, w5=0.3, eta=0.08,
+                 w0=-0.05, w1=0.4, w2=0.4, w3=-0.4, w4_help=0.6, w4_harm=0.6, w5=0.3, eta=0.08,
                  init_alive_prob=0.0)  # start all-dead, we set the seed manually
     if "learn" in Config.__dataclass_fields__:
         cfg = replace(cfg, learn=True)

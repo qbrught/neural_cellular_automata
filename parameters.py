@@ -18,9 +18,11 @@ Stacked across the grid the leading dims become (N, N, ...).
 Dimensions:
     ψ (message function): input is (sender_state, sender_memory, sender_alive,
        sender_goal, receiver_state, receiver_memory, receiver_alive,
-       receiver_goal). Output is (message_vector_of_dim_d, vote_scalar).
+       receiver_goal). Output is (message_vector_of_dim_d, v_help, v_harm).
        in_dim_psi  = 2*d + 2*d + 4 = 4d + 4
-       out_dim_psi = d + 1
+       out_dim_psi = d + 2
+       Typed votes (step A): v_help is routed only to same-goal receivers
+       (kin channel); v_harm only to opposite-goal receivers (foe channel).
 
     f (local update): input is (own_state, own_memory, own_alive,
        aggregated_message_vector_of_dim_d). Output is (new_state, new_memory).
@@ -41,7 +43,7 @@ def psi_in_dim(d: int) -> int:
 
 
 def psi_out_dim(d: int) -> int:
-    return d + 1  # message vector (d) + vote scalar (1)
+    return d + 2  # message vector (d) + help vote (1) + harm vote (1)
 
 
 def f_in_dim(d: int) -> int:

@@ -56,11 +56,16 @@ UI_FIELDS = [
     ("eta", "Learning rate η", "float", 0.0, 1.0, 0.001),
     ("learn", "Learn (0/1)", "int", 0, 1, 1),
     ("require_alive_neighbour", "Require alive nbr (0/1)", "int", 0, 1, 1),
+    ("typed_votes", "Typed votes A (0/1)", "int", 0, 1, 1),
+    ("predator_prey_loss", "Pred-prey loss B (0/1)", "int", 0, 1, 1),
+    ("goal_inheritance", "Goal inherit C (0/1)", "int", 0, 1, 1),
+    ("goal_in_f", "Goal in f D (0/1)", "int", 0, 1, 1),
     ("w0", "w₀ bias", "float", -5.0, 5.0, 0.01),
     ("w1", "w₁ alive", "float", -5.0, 5.0, 0.01),
     ("w2", "w₂ reproducer", "float", -5.0, 5.0, 0.01),
     ("w3", "w₃ eliminator", "float", -5.0, 5.0, 0.01),
-    ("w4", "w₄ vote", "float", -5.0, 5.0, 0.01),
+    ("w4_help", "w₄ help (kin)", "float", -5.0, 5.0, 0.01),
+    ("w4_harm", "w₄ harm (foe)", "float", -5.0, 5.0, 0.01),
     ("w5", "w₅ f-signal", "float", -5.0, 5.0, 0.01),
     ("seed", "Seed", "int", 0, 1_000_000, 1),
     ("init_alive_prob", "Init alive prob", "float", 0.0, 1.0, 0.01),
@@ -96,7 +101,14 @@ def payload_to_cfg(values: dict) -> Config:
             # Unknown field; ignore (lets us add/remove without breaking the UI).
             continue
         kind = field_kinds[k]
-        if k in ("learn", "require_alive_neighbour"):
+        if k in (
+            "learn",
+            "require_alive_neighbour",
+            "typed_votes",
+            "predator_prey_loss",
+            "goal_inheritance",
+            "goal_in_f",
+        ):
             out[k] = bool(int(v))
         elif kind == "intornone":
             if v is None or v == "" or v == "null":

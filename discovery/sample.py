@@ -14,7 +14,8 @@ W0_RANGE = (-4.0, -0.5)
 W1_RANGE = (-4.0, 1.0)
 W2_RANGE = (0.0, 5.0)
 W3_RANGE = (-5.0, 0.5)
-W4_RANGE = (0.0, 2.0)
+W4_HELP_RANGE = (0.0, 2.0)
+W4_HARM_RANGE = (0.0, 2.0)
 W5_RANGE = (-3.0, 1.0)
 INIT_ALIVE_RANGE = (0.05, 0.45)
 ETA_RANGE = (1e-3, 5e-2)
@@ -26,7 +27,8 @@ FIELD_RANGES: dict[str, tuple[float, float]] = {
     "w1": W1_RANGE,
     "w2": W2_RANGE,
     "w3": W3_RANGE,
-    "w4": W4_RANGE,
+    "w4_help": W4_HELP_RANGE,
+    "w4_harm": W4_HARM_RANGE,
     "w5": W5_RANGE,
     "init_alive_prob": INIT_ALIVE_RANGE,
     "eta": ETA_RANGE,
@@ -42,7 +44,8 @@ MUTATE_SIGMA = {
     "w1": 0.35,
     "w2": 0.35,
     "w3": 0.35,
-    "w4": 0.2,
+    "w4_help": 0.2,
+    "w4_harm": 0.2,
     "w5": 0.3,
     "init_alive_prob": 0.05,
 }
@@ -71,7 +74,8 @@ def config_knobs(cfg: Config) -> dict[str, float]:
         "w1": cfg.w1,
         "w2": cfg.w2,
         "w3": cfg.w3,
-        "w4": cfg.w4,
+        "w4_help": cfg.w4_help,
+        "w4_harm": cfg.w4_harm,
         "w5": cfg.w5,
         "init_alive_prob": cfg.init_alive_prob,
         "eta": cfg.eta,
@@ -105,7 +109,8 @@ def sample_config(
         w1=_uniform(rng, *W1_RANGE),
         w2=_uniform(rng, *W2_RANGE),
         w3=_uniform(rng, *W3_RANGE),
-        w4=_uniform(rng, *W4_RANGE),
+        w4_help=_uniform(rng, *W4_HELP_RANGE),
+        w4_harm=_uniform(rng, *W4_HARM_RANGE),
         w5=_uniform(rng, *W5_RANGE),
         seed=_rand_seed(rng),
         init_noise_std=_log_uniform(rng, *NOISE_RANGE),
@@ -189,7 +194,7 @@ def heuristic_next_config(
     """Cheap non-VLM steering for dry-run / VLM failure (small directed steps)."""
     prop: dict[str, float] = {}
     # Default: mild jitter around current.
-    for k in ("w0", "w1", "w2", "w3", "w4", "w5", "init_alive_prob"):
+    for k in ("w0", "w1", "w2", "w3", "w4_help", "w4_harm", "w5", "init_alive_prob"):
         lo, hi = FIELD_RANGES[k]
         cur = getattr(base, k)
         prop[k] = cur + rng.gauss(0.0, 0.15 * (hi - lo))
@@ -204,16 +209,18 @@ def heuristic_next_config(
     elif "static" in reason or "freeze" in reason or "saturated" in reason:
         # Break freeze: more vote/f-signal influence, slightly more death pressure.
         prop["w0"] = base.w0 - 0.25
-        prop["w4"] = base.w4 + 0.25
+        prop["w4_help"] = base.w4_help + 0.25
+        prop["w4_harm"] = base.w4_harm + 0.25
         prop["w5"] = base.w5 + (0.3 if base.w5 < 0 else -0.2)
         prop["eta"] = base.eta * 1.3
     elif "boring" in reason or "reject" in reason:
-        prop["w4"] = base.w4 + rng.choice([-0.3, 0.3])
+        prop["w4_help"] = base.w4_help + rng.choice([-0.3, 0.3])
+        prop["w4_harm"] = base.w4_harm + rng.choice([-0.3, 0.3])
         prop["w5"] = base.w5 + rng.choice([-0.35, 0.35])
         prop["w2"] = base.w2 + rng.gauss(0.0, 0.4)
     elif "saved" in reason or "interesting" in reason:
         # Local refine around a good basin.
-        for k in ("w0", "w1", "w2", "w3", "w4", "w5"):
+        for k in ("w0", "w1", "w2", "w3", "w4_help", "w4_harm", "w5"):
             lo, hi = FIELD_RANGES[k]
             prop[k] = getattr(base, k) + rng.gauss(0.0, 0.08 * (hi - lo))
 
@@ -249,7 +256,8 @@ def _mutate_config(
         w1=jitter("w1", base.w1, *W1_RANGE),
         w2=jitter("w2", base.w2, *W2_RANGE),
         w3=jitter("w3", base.w3, *W3_RANGE),
-        w4=jitter("w4", base.w4, *W4_RANGE),
+        w4_help=jitter("w4_help", base.w4_help, *W4_HELP_RANGE),
+        w4_harm=jitter("w4_harm", base.w4_harm, *W4_HARM_RANGE),
         w5=jitter("w5", base.w5, *W5_RANGE),
         init_alive_prob=jitter(
             "init_alive_prob", base.init_alive_prob, *INIT_ALIVE_RANGE

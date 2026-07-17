@@ -279,14 +279,19 @@ def test_f_signal_channel_pushes_self_alive():
 
     step0 = forward_step(state, params, u, cfg)
     # Pull p_self for cell (1, 1) before and after.
-    p_self_before = torch.sigmoid(
-        cfg.w0
-        + cfg.w1 * step0.survival_inputs.A[1, 1]
-        + cfg.w2 * step0.survival_inputs.R[1, 1]
-        + cfg.w3 * step0.survival_inputs.E[1, 1]
-        + cfg.w4 * step0.survival_inputs.V[1, 1]
-        + cfg.w5 * torch.tanh(step0.survival_inputs.f_signal[1, 1])
-    ).item()
+    def _p_self(step):
+        si = step.survival_inputs
+        return torch.sigmoid(
+            cfg.w0
+            + cfg.w1 * si.A[1, 1]
+            + cfg.w2 * si.R[1, 1]
+            + cfg.w3 * si.E[1, 1]
+            + cfg.w4_help * si.V_kin[1, 1]
+            + cfg.w4_harm * si.V_foe[1, 1]
+            + cfg.w5 * torch.tanh(si.f_signal[1, 1])
+        ).item()
+
+    p_self_before = _p_self(step0)
 
     losses = compute_local_losses(state, step0, cfg)
     _zero_grads(params)
@@ -296,14 +301,7 @@ def test_f_signal_channel_pushes_self_alive():
                        eta=0.5, alive_mask=state.x)
 
     step1 = forward_step(state, params, u, cfg)
-    p_self_after = torch.sigmoid(
-        cfg.w0
-        + cfg.w1 * step1.survival_inputs.A[1, 1]
-        + cfg.w2 * step1.survival_inputs.R[1, 1]
-        + cfg.w3 * step1.survival_inputs.E[1, 1]
-        + cfg.w4 * step1.survival_inputs.V[1, 1]
-        + cfg.w5 * torch.tanh(step1.survival_inputs.f_signal[1, 1])
-    ).item()
+    p_self_after = _p_self(step1)
 
     assert p_self_after > p_self_before - 1e-4, (
         f"f-channel-only update did not increase self-survival: "
@@ -317,14 +315,16 @@ def test_f_signal_channel_pushes_self_alive():
 def _soft_p_at_each_neighbour(state, step_out, cfg):
     """Helper: for each cell, return its 8 neighbours' soft survival probs."""
     from grid import gather_neighbours
+    si = step_out.survival_inputs
     return gather_neighbours(
         torch.sigmoid(
             cfg.w0
-            + cfg.w1 * step_out.survival_inputs.A
-            + cfg.w2 * step_out.survival_inputs.R
-            + cfg.w3 * step_out.survival_inputs.E
-            + cfg.w4 * step_out.survival_inputs.V
-            + cfg.w5 * torch.tanh(step_out.survival_inputs.f_signal)
+            + cfg.w1 * si.A
+            + cfg.w2 * si.R
+            + cfg.w3 * si.E
+            + cfg.w4_help * si.V_kin
+            + cfg.w4_harm * si.V_foe
+            + cfg.w5 * torch.tanh(si.f_signal)
         )
     )
 

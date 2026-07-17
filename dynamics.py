@@ -3,15 +3,23 @@
 This file holds pure functions of (state, params, config). No mutation,
 no side-effects — easy to test, easy to differentiate through.
 
-Survival rule (Option B from the design discussion):
+Survival rule (typed votes, step A):
 
     p_i = sigmoid( w0
-                 + w1 * A_i          # total alive neighbours
-                 + w2 * R_i          # alive reproducer neighbours
-                 + w3 * E_i          # alive eliminator neighbours
-                 + w4 * V_i )        # weighted vote sum from neighbours
+                 + w1 * A_i            # total alive neighbours
+                 + w2 * R_i            # alive reproducer neighbours
+                 + w3 * E_i            # alive eliminator neighbours
+                 + w4_help * V_kin_i   # same-goal senders' help votes
+                 + w4_harm * V_foe_i   # opposite-goal senders' harm votes
+                 + w5 * tanh(u · s̃_i) )
 
-where V_i = sum_{j in N(i)} rho_j * v_{j->i}.
+where
+    V_kin_i = sum_{j in N(i), g_j=g_i}  rho_j * v_help_{j->i}
+    V_foe_i = sum_{j in N(i), g_j≠g_i}  rho_j * v_harm_{j->i}
+
+ψ emits both v_help and v_harm on every edge; routing by goal match decides
+which channel reaches the receiver. This makes help/harm physically typed
+rather than a single indiscriminate vote scalar.
 
 The hard rule used in the simulation: x_{t+1} = 1[p_i > 0.5].
 The soft rule used in the loss:        x_{t+1} ~ p_i  (as a differentiable
@@ -37,7 +45,8 @@ class SurvivalInputs:
     A: Tensor          # total alive neighbours
     R: Tensor          # alive reproducer neighbours
     E: Tensor          # alive eliminator neighbours
-    V: Tensor          # weighted incoming vote sum
+    V_kin: Tensor      # same-goal (kin) help-vote sum
+    V_foe: Tensor      # opposite-goal (foe) harm-vote sum
     f_signal: Tensor   # u . s_proposed_i  (Path 1: f's gradient channel)
 
 
@@ -52,21 +61,22 @@ def make_u(d: int, u_seed: int, device: str = "cpu") -> Tensor:
 
 def compute_survival_inputs(
     state: State,
-    incoming_vote_sum: Tensor,
+    V_kin: Tensor,
+    V_foe: Tensor,
     s_proposed: Tensor,
     u: Tensor,
 ) -> SurvivalInputs:
-    """Compute A, R, E, V, and the f-signal u . s_proposed_i.
+    """Compute A, R, E, typed vote sums, and the f-signal u . s_proposed_i.
 
     Args:
         state: current State.
-        incoming_vote_sum: (N, N) tensor where entry (i, j) is
-            sum_{k in N(i,j)} rho_k * v_{k -> (i,j)}.
+        V_kin: (N, N) sum of rho-gated help votes from same-goal neighbours.
+        V_foe: (N, N) sum of rho-gated harm votes from opposite-goal neighbours.
         s_proposed: (N, N, d) tensor of f's proposed next-state outputs.
         u: (d,) fixed projection vector.
 
     Returns:
-        SurvivalInputs (A, R, E, V, f_signal), each (N, N).
+        SurvivalInputs, each field (N, N).
     """
     # Neighbour alive flags: (N, N, 8)
     alive_n = gather_neighbours(state.x)
@@ -82,12 +92,15 @@ def compute_survival_inputs(
     # (N, N, d) . (d,) -> (N, N)
     f_signal = (s_proposed * u).sum(dim=-1)
 
-    return SurvivalInputs(A=A, R=R, E=E, V=incoming_vote_sum, f_signal=f_signal)
+    return SurvivalInputs(
+        A=A, R=R, E=E, V_kin=V_kin, V_foe=V_foe, f_signal=f_signal,
+    )
 
 
 def survival_logit(inputs: SurvivalInputs, cfg: Config) -> Tensor:
     """Logit of the survival probability:
-       w0 + w1 A + w2 R + w3 E + w4 V + w5 tanh(u . s_proposed).
+       w0 + w1 A + w2 R + w3 E + w4_help V_kin + w4_harm V_foe
+       + w5 tanh(u . s_proposed).
 
     The tanh bounds the f-signal contribution to [-w5, +w5], so even a
     well-trained f can't overwhelm the other survival terms. Without this,
@@ -99,7 +112,8 @@ def survival_logit(inputs: SurvivalInputs, cfg: Config) -> Tensor:
         + cfg.w1 * inputs.A
         + cfg.w2 * inputs.R
         + cfg.w3 * inputs.E
-        + cfg.w4 * inputs.V
+        + cfg.w4_help * inputs.V_kin
+        + cfg.w4_harm * inputs.V_foe
         + cfg.w5 * torch.tanh(inputs.f_signal)
     )
 
@@ -132,15 +146,15 @@ class MessagePassOutput:
     Attributes:
         aggregated_messages: (N, N, d) — sum of message vectors received by
             each cell. Fed into the local update f.
-        incoming_vote_sum: (N, N) — sum over neighbours j of rho_j * v_{j->i}.
-            Fed into the survival rule.
-        outgoing_votes: (N, N, 8) — vote_{i -> k} for each cell i and each
-            of its 8 outgoing edges (the k-th edge sends a message to the
-            neighbour at offset NEIGHBOUR_OFFSETS[k] from i). Kept for use
-            in the locality-preserving loss.
+        V_kin: (N, N) — sum of rho_j * v_help from same-goal neighbours.
+        V_foe: (N, N) — sum of rho_j * v_harm from opposite-goal neighbours.
+        outgoing_votes: (N, N, 8, 2) — [help, harm] from i along each of its
+            8 outgoing edges, gated by rho_i and x_i (not yet goal-routed).
+            Routing is applied when aggregating into V_kin / V_foe.
     """
     aggregated_messages: Tensor
-    incoming_vote_sum: Tensor
+    V_kin: Tensor
+    V_foe: Tensor
     outgoing_votes: Tensor
 
 
@@ -203,7 +217,7 @@ def _psi_forward_per_edge(psi_inputs: Tensor, params: Parameters) -> Tensor:
         params: per-cell parameters
 
     Returns:
-        (N, N, 8, out_psi) where out_psi = d + 1 (message vec + vote scalar)
+        (N, N, 8, out_psi) where out_psi = d + 2 (message + help + harm)
     """
     # Gather sender params for each edge.
     W1 = _gather_sender_params(params.psi_W1)  # (N, N, 8, in_psi, hidden)
@@ -219,63 +233,111 @@ def _psi_forward_per_edge(psi_inputs: Tensor, params: Parameters) -> Tensor:
     return y
 
 
-def message_pass(state: State, params: Parameters) -> MessagePassOutput:
+def _goal_match_mask(state: State) -> tuple[Tensor, Tensor]:
+    """Per incoming edge: same-goal and opposite-goal masks.
+
+    Returns:
+        same, diff: each (N, N, 8) float in {0, 1}, from the *receiver's*
+        perspective (slot k = neighbour k of the receiver).
+    """
+    sender_goals = gather_neighbours(state.goals.float())  # (N, N, 8)
+    receiver_goals = state.goals.float().unsqueeze(-1)     # (N, N, 1)
+    same = (sender_goals == receiver_goals).float()
+    diff = 1.0 - same
+    return same, diff
+
+
+def _route_votes(
+    help_votes: Tensor,
+    harm_votes: Tensor,
+    gate: Tensor,
+    same: Tensor,
+    diff: Tensor,
+) -> tuple[Tensor, Tensor]:
+    """Apply rho/alive gate and goal routing; sum over the 8 edges.
+
+    Args:
+        help_votes, harm_votes, gate, same, diff: each (N, N, 8)
+
+    Returns:
+        V_kin, V_foe: each (N, N)
+    """
+    V_kin = (help_votes * gate * same).sum(dim=2)
+    V_foe = (harm_votes * gate * diff).sum(dim=2)
+    return V_kin, V_foe
+
+
+def message_pass(
+    state: State,
+    params: Parameters,
+    typed_votes: bool = True,
+) -> MessagePassOutput:
     """Compute messages from every neighbour to every cell.
 
     Steps:
         1. Build ψ inputs per directed edge.
         2. Apply ψ using the *sender's* weights.
-        3. Split outputs into message vector (d) and vote scalar (1).
-        4. Multiply each message and vote by the sender's communication rate
-           ρ_j (the "rate-gated" message rule).
-        5. Mask by sender alive flag (dead cells emit nothing).
-        6. Aggregate: sum messages and votes over the 8 incoming edges.
+        3. Split outputs into message vector (d), v_help, v_harm.
+        4. Multiply messages by sender rho and alive flag.
+        5. Aggregate votes:
+             typed_votes=True  (version A): help→kin, harm→foe
+             typed_votes=False (original):  help on all edges → V_kin; V_foe=0
+        6. Aggregate messages over the 8 incoming edges.
 
     Returns:
-        MessagePassOutput with aggregated_messages (N, N, d),
-        incoming_vote_sum (N, N), outgoing_votes (N, N, 8).
+        MessagePassOutput with aggregated_messages, V_kin, V_foe,
+        outgoing_votes (N, N, 8, 2).
     """
     d = state.d
     out_psi = psi_out_dim(d)
-    assert out_psi == d + 1
+    assert out_psi == d + 2
 
     psi_inputs = _build_psi_inputs(state)           # (N, N, 8, 4d+4)
-    psi_out = _psi_forward_per_edge(psi_inputs, params)  # (N, N, 8, d+1)
+    psi_out = _psi_forward_per_edge(psi_inputs, params)  # (N, N, 8, d+2)
 
-    # Split into messages and votes.
+    # Split into messages and dual votes.
     messages = psi_out[..., :d]                     # (N, N, 8, d)
-    votes_received = psi_out[..., d]                # (N, N, 8)  scalar per edge
+    help_votes = psi_out[..., d]                    # (N, N, 8)
+    harm_votes = psi_out[..., d + 1]                # (N, N, 8)
 
     # Gate by sender's rho and alive flag.
     # The k-th slot is what arrives from neighbour k of the receiver.
     sender_rho = gather_neighbours(state.rho)       # (N, N, 8)
     sender_alive = gather_neighbours(state.x)       # (N, N, 8)
-    gate = (sender_rho * sender_alive)              # (N, N, 8)
+    gate = sender_rho * sender_alive                # (N, N, 8)
 
     messages = messages * gate.unsqueeze(-1)
-    votes_received = votes_received * gate
 
-    # Aggregate over the 8 incoming edges.
+    if typed_votes:
+        same, diff = _goal_match_mask(state)
+        V_kin, V_foe = _route_votes(help_votes, harm_votes, gate, same, diff)
+    else:
+        # Original: one indiscriminate vote channel (use help head for all).
+        V_kin = (help_votes * gate).sum(dim=2)
+        V_foe = torch.zeros_like(V_kin)
+
     aggregated_messages = messages.sum(dim=2)       # (N, N, d)
-    incoming_vote_sum = votes_received.sum(dim=2)   # (N, N)
 
     outgoing_votes = _compute_outgoing_votes(state, params)
     return MessagePassOutput(
         aggregated_messages=aggregated_messages,
-        incoming_vote_sum=incoming_vote_sum,
+        V_kin=V_kin,
+        V_foe=V_foe,
         outgoing_votes=outgoing_votes,
     )
 
 
 def _compute_outgoing_votes(state: State, params: Parameters) -> Tensor:
-    """Compute v_{i -> k} for each cell i and each of its 8 outgoing edges.
+    """Compute (v_help, v_harm)_{i -> k} for each cell i and each outgoing edge.
 
     From cell i's POV, it sends to each of its 8 neighbours. The receiver
     of edge k is the cell at offset NEIGHBOUR_OFFSETS[k] from i. ψ takes
     (y_sender=i, y_receiver=neighbour-k-of-i).
 
     Returns:
-        (N, N, 8) — gated by rho_i and x_i, just like incoming_vote_sum.
+        (N, N, 8, 2) — channel 0 = help, channel 1 = harm; gated by
+        rho_i and x_i. Goal routing is *not* applied here (that depends on
+        the receiver's goal match and is done at aggregation time).
     """
     d = state.d
 
@@ -297,12 +359,15 @@ def _compute_outgoing_votes(state: State, params: Parameters) -> Tensor:
 
     # Apply ψ using i's OWN per-cell weights (no gather), broadcasting over edges.
     psi_out = batched_mlp(psi_in, params.psi_W1, params.psi_b1,
-                          params.psi_W2, params.psi_b2)  # (N, N, 8, d+1)
-    votes = psi_out[..., d]  # (N, N, 8)
+                          params.psi_W2, params.psi_b2)  # (N, N, 8, d+2)
+    help_votes = psi_out[..., d]       # (N, N, 8)
+    harm_votes = psi_out[..., d + 1]   # (N, N, 8)
 
     # Gate by sender's own rho and alive.
     gate = (state.rho * state.x).unsqueeze(-1)  # (N, N, 1)
-    return votes * gate
+    help_votes = help_votes * gate
+    harm_votes = harm_votes * gate
+    return torch.stack([help_votes, harm_votes], dim=-1)  # (N, N, 8, 2)
 
 
 # Local update
@@ -350,8 +415,8 @@ class StepOutput:
     next_state: State
 
     # Intermediates kept for the learning step:
-    survival_inputs: SurvivalInputs    # A, R, E, V at current step
-    outgoing_votes: Tensor             # (N, N, 8) — current step's votes
+    survival_inputs: SurvivalInputs    # A, R, E, V_kin, V_foe, f_signal
+    outgoing_votes: Tensor             # (N, N, 8, 2) — help/harm per edge
     s_proposed: Tensor                 # (N, N, d)
     h_proposed: Tensor                 # (N, N, d)
 
@@ -360,16 +425,17 @@ def forward_step(state: State, params: Parameters, u: Tensor, cfg: Config) -> St
     """One forward CA step. No gradient updates here.
 
     Order:
-        1. Message pass: compute aggregated messages and incoming vote sum.
+        1. Message pass: messages + typed vote aggregates.
         2. Local update: propose new s and h.
-        3. Survival: compute A, R, E from current state; combine with V and
-           the f-signal (u . s_proposed); hard threshold for the new alive flag.
+        3. Survival: A, R, E + V_kin, V_foe + f-signal; hard threshold.
         4. Mask: zero out s and h for cells that died.
     """
-    mp = message_pass(state, params)
+    mp = message_pass(state, params, typed_votes=cfg.typed_votes)
     s_proposed, h_proposed = local_update(state, mp.aggregated_messages, params)
 
-    surv_in = compute_survival_inputs(state, mp.incoming_vote_sum, s_proposed, u)
+    surv_in = compute_survival_inputs(
+        state, mp.V_kin, mp.V_foe, s_proposed, u,
+    )
     x_next = hard_survival(surv_in, cfg)
 
     # Apply alive mask.

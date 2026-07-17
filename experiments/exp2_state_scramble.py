@@ -14,7 +14,7 @@ Interpretation:
   - little divergence -> state-blind policy
 
 Run:  python -m experiments.exp2_state_scramble
-Out:  runs/exp2_state_scramble/summary.png + printed divergence stats
+Out:  runs/exp2_state_scramble/summary.svg + printed divergence stats
 """
 
 from __future__ import annotations
@@ -32,6 +32,19 @@ OUT = Path("runs/exp2_state_scramble")
 STEPS = 400
 SCRAMBLE_AT = 200
 GRID_N = 30
+
+# Poster styling (A1 = 23.4 × 33.1 in)
+POSTER_RC = {
+    "font.size": 22,
+    "axes.titlesize": 30,
+    "axes.labelsize": 26,
+    "xtick.labelsize": 20,
+    "ytick.labelsize": 20,
+    "legend.fontsize": 22,
+    "lines.linewidth": 3.0,
+    "axes.linewidth": 1.5,
+    "grid.linewidth": 1.2,
+}
 
 
 def scramble_noise(state, gen):
@@ -58,7 +71,7 @@ def scramble_permute(state, gen):
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     cfg = Config(N=GRID_N, n_steps=STEPS, seed=7,
-                 w0=-0.05, w1=0.4, w2=0.4, w3=-0.4, w4=0.6, w5=0.3, eta=0.08)
+                 w0=-0.05, w1=0.4, w2=0.4, w3=-0.4, w4_help=0.6, w4_harm=0.6, w5=0.3, eta=0.08)
 
     base = run_metrics(cfg, learn=True, steps=STEPS)
     noise = run_metrics(cfg, learn=True, steps=STEPS,
@@ -67,16 +80,21 @@ def main():
                        perturb_at=SCRAMBLE_AT, perturb_fn=scramble_permute)
 
     x = np.arange(STEPS)
-    plt.figure(figsize=(11, 5))
-    plt.plot(x, base["alive"], label="baseline", linewidth=1.5, color="#38bdf8")
-    plt.plot(x, noise["alive"], label="noise scramble", linewidth=1.5, color="#e0492f")
-    plt.plot(x, perm["alive"], label="permute scramble", linewidth=1.5, color="#3ec96b")
-    plt.axvline(SCRAMBLE_AT, color="gray", linestyle="--", alpha=0.6)
-    plt.xlabel("step"); plt.ylabel("alive count")
-    plt.title("State scramble at step %d" % SCRAMBLE_AT)
-    plt.legend(); plt.grid(alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(OUT / "summary.png", dpi=120)
+
+    with plt.rc_context(POSTER_RC):
+        fig, ax = plt.subplots(figsize=(18.0, 6.0))
+        ax.plot(x, base["alive"], label="baseline", color="#38bdf8")
+        ax.plot(x, noise["alive"], label="noise scramble", color="#e0492f")
+        ax.plot(x, perm["alive"], label="permute scramble", color="#3ec96b")
+        ax.axvline(SCRAMBLE_AT, color="gray", linestyle="--", alpha=0.6, linewidth=2)
+        ax.set_xlabel("step")
+        ax.set_ylabel("alive count")
+        ax.set_title("State scramble at step %d" % SCRAMBLE_AT)
+        ax.legend(loc="upper right", framealpha=0.9)
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(OUT / "summary.svg", format="svg")
+    plt.close(fig)
 
     def divergence(a):
         d = np.abs(base["alive"][SCRAMBLE_AT:] - a["alive"][SCRAMBLE_AT:])
@@ -85,7 +103,7 @@ def main():
     for name, m in [("noise", noise), ("permute", perm)]:
         mx, mn = divergence(m)
         print(f"{name:8s}: max divergence={mx:4.0f}  mean divergence={mn:5.1f}")
-    print(f"Saved {OUT/'summary.png'}")
+    print(f"Saved {OUT / 'summary.svg'}")
     print("Read: large divergence => cells use state; near-zero => state-blind.")
 
 

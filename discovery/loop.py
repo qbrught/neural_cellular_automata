@@ -69,7 +69,7 @@ class TrialRecord:
         k = self.knobs
         core = (
             f"w0={k.get('w0')} w1={k.get('w1')} w2={k.get('w2')} "
-            f"w3={k.get('w3')} w4={k.get('w4')} w5={k.get('w5')} "
+            f"w3={k.get('w3')} w4h={k.get('w4_help')} w4m={k.get('w4_harm')} w5={k.get('w5')} "
             f"p0={k.get('init_alive_prob')}"
         )
         extra = f" | {self.analysis}" if self.analysis else ""
@@ -257,7 +257,7 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
         print(
             f"[cycle {cycle}|{source}] seed={cfg.seed} "
             f"w0={cfg.w0} w1={cfg.w1} w2={cfg.w2} w3={cfg.w3} "
-            f"w4={cfg.w4} w5={cfg.w5} p0={cfg.init_alive_prob} eta={cfg.eta}"
+            f"w4h={cfg.w4_help} w4m={cfg.w4_harm} w5={cfg.w5} p0={cfg.init_alive_prob} eta={cfg.eta}"
         )
 
         run_trial(cfg, trial_dir, verbose=loop_cfg.verbose_sim)

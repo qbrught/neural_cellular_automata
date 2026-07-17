@@ -22,7 +22,7 @@ Survival is a fixed logistic rule with weights w0..w5:
   w1 total alive neighbours
   w2 alive reproducer neighbours (often helps population persist)
   w3 alive eliminator neighbours (often negative = penalty)
-  w4 weighted vote sum (learnable communication channel)
+  w4_help kin help votes; w4_harm foe harm votes (typed channels)
   w5 f-signal from local state update (learnable self-survival channel)
 Also: init_alive_prob, eta (learning rate), init_noise_std.
 
@@ -72,7 +72,7 @@ next_config: object with ABSOLUTE values for knobs to set on the NEXT run.
 Guidance rules:
 - If extinct / near-dead: move toward survival with SMALL steps (e.g. raise w2,
   make w0 less negative, slightly higher init_alive_prob). Do NOT randomize everything.
-- If static/saturated freeze: adjust w4/w5/eta or death bias modestly to restore change.
+- If static/saturated freeze: adjust w4_help/w4_harm/w5/eta or death bias modestly to restore change.
 - If interesting but not novel: keep the basin, small refine OR diversify one channel.
 - If interesting and saved: refine locally (small jitter in weights).
 - If stuck repeating failures: explore_jump with a bolder but still in-range change.

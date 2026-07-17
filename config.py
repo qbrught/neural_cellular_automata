@@ -26,19 +26,32 @@ class Config:
     n_steps: int | None = 4000  # simulation steps; None means run indefinitely
     learn: bool = True
     require_alive_neighbour: bool = True  # if True, a cell needs A_i > 0 to be alive next step
+
+    # ---- Research version flags (paper ablation path) ----
+    # Step A: typed help/harm votes routed by kin vs foe.
+    #   False = original single-channel votes (indiscriminate)
+    #   True  = dual votes with goal routing (version A)
+    typed_votes: bool = True
+    # Placeholders for later steps (wired as they are implemented):
+    predator_prey_loss: bool = False   # Step B
+    goal_inheritance: bool = False     # Step C
+    goal_in_f: bool = False            # Step D
+
     # ---- Survival rule weights ----
     # Logistic combination of:
     #   w0: bias (negative -> bias toward death)
     #   w1: total alive neighbours
     #   w2: alive reproducer neighbours
     #   w3: alive eliminator neighbours
-    #   w4: weighted vote sum (sum over neighbours of rho_j * v_{j->i})
+    #   w4_help: kin-channel (typed) or sole vote channel (original)
+    #   w4_harm: foe-channel vote sum (typed mode only; unused if typed_votes=False)
     #   w5: f-signal = u . s_proposed_i  (Path 1: gives f a gradient channel)
     w0: float = -2.15
     w1: float = -2.06
     w2: float = 3.51
     w3: float = -1.87
-    w4: float = 0.5
+    w4_help: float = 0.5
+    w4_harm: float = 0.5
     w5: float = -1.34
 
     # ---- Initialisation ----
@@ -94,4 +107,16 @@ class Config:
     def load(cls, path: str | Path) -> "Config":
         with Path(path).open("r") as f:
             data = json.load(f)
+        # Migrate pre-step-A configs that used a single w4 vote weight.
+        if "w4" in data and "w4_help" not in data:
+            w4 = data.pop("w4")
+            data["w4_help"] = w4
+            data.setdefault("w4_harm", w4)
+            # Historical configs with only w4 predate typed votes.
+            data.setdefault("typed_votes", False)
+        else:
+            data.pop("w4", None)
+        # Ignore unknown keys so older/newer JSON stays loadable.
+        known = set(cls.__dataclass_fields__.keys())  # type: ignore[attr-defined]
+        data = {k: v for k, v in data.items() if k in known}
         return cls(**data)

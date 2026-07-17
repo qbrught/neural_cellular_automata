@@ -35,7 +35,7 @@ def main():
         repro, elim, total = [], [], []
         for seed in range(N_SEEDS):
             cfg = Config(N=GRID_N, n_steps=STEPS, seed=seed,
-                         w0=-0.05, w1=0.4, w2=0.4, w3=w3, w4=0.6, w5=0.3, eta=0.08)
+                         w0=-0.05, w1=0.4, w2=0.4, w3=w3, w4_help=0.6, w4_harm=0.6, w5=0.3, eta=0.08)
             m = run_metrics(cfg, learn=True, steps=STEPS)
             t = summarise_tail(m)
             repro.append(t["reproducer_alive"])

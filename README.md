@@ -51,17 +51,34 @@ The hand-tuned weights, per-cell goals, per-cell communication rates, and the pr
 
 ```
 ncsa/
-  config.py        # hyperparameters + seed (including w5 and u_seed)
+  config.py        # hyperparameters + seed + research version flags
   parameters.py    # per-cell ψ and f MLP weights, batched forward
   state.py         # per-cell state (x, s, h, goals, rho)
   grid.py          # Grid container, toroidal Moore-neighbourhood gather
-  dynamics.py      # message pass, local update, survival rule (with f-signal)
-  learning.py      # per-cell loss (self + neighbour terms), locality SGD step
+  dynamics.py      # message pass, local update, survival rule (typed votes)
+  learning.py      # per-cell loss, locality SGD step
   simulate.py      # full loop, trajectory writing
   visualise.py     # render trajectory.npz to summary.png / animation.gif
   run.py           # CLI
-  tests/           # 7 test files, all green
+  server.py        # interactive UI
+  research/        # paper version suite (original → A → B → C → D)
+  experiments/     # one-off scientific probes
+  tests/           # unit tests
 ```
+
+## Research suite (paper comparisons)
+
+Compare versions under fixed seeds with metrics, charts, and a markdown report:
+
+```bash
+python -m research.suite list
+python -m research.suite run --versions original,A          # full
+python -m research.suite run --quick                        # smoke
+```
+
+Open `research_results/<run>/REPORT.md`. See [`research/README.md`](research/README.md).
+
+Version flags (also in the UI): `typed_votes` (A), `predator_prey_loss` (B), `goal_inheritance` (C), `goal_in_f` (D).
 
 ## Run simulation stand-alone
 
@@ -72,6 +89,38 @@ python run.py --seed 7 --n-steps 500 --visualise # custom
 ```
 
 Outputs land in `runs/<timestamp>/` as `config.json`, `trajectory.npz`, `params_final.pt`, and (with `--visualise`) `summary.png` and `animation.gif`.
+
+## Automated config discovery
+
+Search configs with **learning on**, prefilter crashes, and use **Gemini Flash** both to judge dynamics and to **propose the next config** (guided search). Pure random is still available via `--no-guided`.
+
+```bash
+pip install -r requirements-discovery.txt   # google-genai
+export GEMINI_API_KEY=...                   # or GOOGLE_API_KEY
+
+# Guided (default): VLM sees config + summary + recent history, returns
+# analysis + next_config (small directed steps after extinction/static, etc.)
+python discover.py --max-cycles 30 --target-discoveries 5
+
+# Occasional random jumps while guided (default explore-prob=0.15)
+python discover.py --max-cycles 40 --target-discoveries 5 --explore-prob 0.2
+
+# Pure random (old behaviour)
+python discover.py --no-guided --max-cycles 30 --target-discoveries 5
+
+# Dry run: sims + prefilter + heuristic steering, no API
+python discover.py --max-cycles 10 --dry-run --n-steps 500
+```
+
+Each guided cycle logs `analysis`, `strategy`, and which knobs change next. Saved finds land under `discoveries/` with a one-liner catalog.
+
+Re-run a discovery:
+
+```bash
+python run.py --config discoveries/disc_0001/config.json --visualise
+```
+
+See `DISCOVERY_PLAN.md` for design details. Catalog: `discoveries/catalog.md`.
 
 ## Interactive UI
 
