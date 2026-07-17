@@ -67,12 +67,26 @@ def plot_run_panel(result: dict[str, Any], out_path: Path) -> Path:
     ax.legend()
 
     ax = axes[1, 1]
-    ax.plot(t, s["V_kin_mean"], label="mean V_kin", color="#9467bd", lw=1.2)
-    ax.plot(t, s["V_foe_mean"], label="mean V_foe", color="#8c564b", lw=1.2)
-    ax.set_ylabel("vote aggregate")
-    ax.set_xlabel("step")
-    ax.set_title("Survival vote channels")
-    ax.legend()
+    if "death_rate_same_edge" in s and "death_rate_cross_edge" in s:
+        ax.plot(
+            t, s["death_rate_same_edge"],
+            label="same-type edges", color="#2ca02c", lw=1.2,
+        )
+        ax.plot(
+            t, s["death_rate_cross_edge"],
+            label="cross-type edges", color="#d62728", lw=1.2,
+        )
+        ax.set_ylabel("sender death rate")
+        ax.set_xlabel("step")
+        ax.set_title("Typed edge death rates")
+        ax.legend()
+    else:
+        ax.plot(t, s["V_kin_mean"], label="mean V_kin", color="#9467bd", lw=1.2)
+        ax.plot(t, s["V_foe_mean"], label="mean V_foe", color="#8c564b", lw=1.2)
+        ax.set_ylabel("vote aggregate")
+        ax.set_xlabel("step")
+        ax.set_title("Survival vote channels")
+        ax.legend()
 
     fig.tight_layout()
     out_path = Path(out_path)
@@ -219,6 +233,27 @@ def plot_comparison_dashboard(
         ylabel="same-goal edge frac",
         title="Spatial segregation (alive–alive 4-edges)",
     )
+    paths["death_same"] = plot_version_overlay(
+        results,
+        out_dir / "12_death_rate_same_edge.png",
+        metric_key="death_rate_same_edge",
+        ylabel="sender death rate",
+        title="Death rate on same-type directed edges",
+    )
+    paths["death_cross"] = plot_version_overlay(
+        results,
+        out_dir / "13_death_rate_cross_edge.png",
+        metric_key="death_rate_cross_edge",
+        ylabel="sender death rate",
+        title="Death rate on cross-type directed edges",
+    )
+    paths["death_gap"] = plot_version_overlay(
+        results,
+        out_dir / "14_death_rate_gap.png",
+        metric_key="death_rate_cross_minus_same",
+        ylabel="cross − same",
+        title="Typed death gap (cross − same; >0 ⇒ cross more lethal)",
+    )
 
     # Scalar bar chart: corr(ra,ea) by version
     _style()
@@ -235,8 +270,27 @@ def plot_comparison_dashboard(
     ax.set_ylabel("corr(repro_alive, elim_alive)")
     ax.set_title("Alive-count coupling (lower = more type-specific dynamics)")
     fig.tight_layout()
-    paths["coupling_bar"] = out_dir / "12_coupling_bar.png"
+    paths["coupling_bar"] = out_dir / "15_coupling_bar.png"
     fig.savefig(paths["coupling_bar"])
     plt.close(fig)
+
+    # Bar: late typed death gap by version
+    by_gap: dict[str, list[float]] = {}
+    for r in results:
+        g = r["summary"].get("late_death_rate_cross_minus_same", float("nan"))
+        by_gap.setdefault(r["version_id"], []).append(g)
+    if by_gap:
+        fig, ax = plt.subplots(figsize=(6, 4))
+        vids = sorted(by_gap)
+        means = [np.nanmean(by_gap[v]) for v in vids]
+        stds = [np.nanstd(by_gap[v]) if len(by_gap[v]) > 1 else 0.0 for v in vids]
+        ax.bar(vids, means, yerr=stds, color="#c44e52", alpha=0.85, capsize=4)
+        ax.axhline(0, color="k", lw=0.5)
+        ax.set_ylabel("late death gap (cross − same)")
+        ax.set_title("Cross-type lethality vs same-type (late window)")
+        fig.tight_layout()
+        paths["death_gap_bar"] = out_dir / "16_death_gap_bar.png"
+        fig.savefig(paths["death_gap_bar"])
+        plt.close(fig)
 
     return paths

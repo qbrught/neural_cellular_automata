@@ -41,6 +41,7 @@ def summarize_run(
       V_kin_mean, V_foe_mean
       vote_R_help_kin, vote_R_harm_foe, vote_E_help_kin, vote_E_harm_foe
       same_goal_edge_frac  (optional)
+      death_rate_same_edge, death_rate_cross_edge, death_rate_cross_minus_same
     """
     ra = np.asarray(series["reproducer_alive"], dtype=float)
     ea = np.asarray(series["eliminator_alive"], dtype=float)
@@ -118,6 +119,25 @@ def summarize_run(
         sg = np.asarray(series["same_goal_edge_frac"], float)
         out["mean_segregation"] = _nanmean(sg)
         out["late_segregation"] = _nanmean(sg[late])
+
+    # Typed edge death rates (same-goal vs cross-goal directed edges).
+    if "death_rate_same_edge" in series and "death_rate_cross_edge" in series:
+        d_same = np.asarray(series["death_rate_same_edge"], float)
+        d_cross = np.asarray(series["death_rate_cross_edge"], float)
+        d_gap = np.asarray(
+            series.get(
+                "death_rate_cross_minus_same",
+                d_cross - d_same,
+            ),
+            float,
+        )
+        out["mean_death_rate_same_edge"] = _nanmean(d_same)
+        out["mean_death_rate_cross_edge"] = _nanmean(d_cross)
+        out["mean_death_rate_cross_minus_same"] = _nanmean(d_gap)
+        out["late_death_rate_same_edge"] = _nanmean(d_same[late])
+        out["late_death_rate_cross_edge"] = _nanmean(d_cross[late])
+        out["late_death_rate_cross_minus_same"] = _nanmean(d_gap[late])
+        out["early_death_rate_cross_minus_same"] = _nanmean(d_gap[early])
     return out
 
 
@@ -141,6 +161,9 @@ TABLE_COLUMNS: list[tuple[str, str, str]] = [
     ("corr_loss_r_e", "corr(Lr,Le)", ".3f"),
     ("late_R_vote_disc", "R vote disc late", ".3f"),
     ("late_E_vote_disc", "E vote disc late", ".3f"),
+    ("late_death_rate_same_edge", "death same late", ".3f"),
+    ("late_death_rate_cross_edge", "death cross late", ".3f"),
+    ("late_death_rate_cross_minus_same", "death gap late", ".3f"),
     ("mean_alive_late", "alive late", ".1f"),
     ("extinct_step", "extinct@", "s"),
 ]

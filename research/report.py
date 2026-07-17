@@ -94,6 +94,10 @@ def write_report(
         "| corr(Lr,Le) | Loss coupling. ~−1 under mirror losses; higher if roles differ. |\n"
         "| R/E vote disc late | Vote specialization (help_kin−harm_foe for R; "
         "harm_foe−help_kin for E) in the last 10% of steps. |\n"
+        "| death same/cross late | Sender death rate on same-type vs cross-type "
+        "directed Moore edges (both endpoints alive at t). |\n"
+        "| death gap late | cross − same death rate; >0 means cross-type contact "
+        "is more lethal. |\n"
         "| extinct@ | Fraction of seeds that hit total extinction. |\n"
     )
     lines.append("")

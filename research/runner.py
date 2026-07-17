@@ -53,6 +53,52 @@ def _same_goal_edge_frac(state) -> float:
 
 
 @torch.no_grad()
+def _typed_edge_death_rates(state, x_next: torch.Tensor) -> dict[str, float]:
+    """Death rates of alive senders on same-type vs cross-type directed edges.
+
+    For every directed Moore edge i → j where both are alive at t:
+      same-type  if goals match
+      cross-type if goals differ
+
+    death_rate_* = fraction of such edges for which sender i is dead at t+1.
+
+    Interpretation: how often does a cell die when its neighbour is kin vs foe?
+    gap = cross − same  (positive ⇒ cross-type contact is more lethal).
+    """
+    alive = state.x > 0
+    dies = alive & (x_next <= 0)
+    nb_alive = gather_neighbours(state.x) > 0                          # (N,N,8)
+    nb_goal = gather_neighbours(state.goals.float())                   # (N,N,8)
+    my_g = state.goals.float().unsqueeze(-1)                           # (N,N,1)
+    sender_alive = alive.unsqueeze(-1)                                 # (N,N,1)
+    edge = sender_alive & nb_alive                                     # both alive at t
+    same_edge = edge & (my_g == nb_goal)
+    cross_edge = edge & (my_g != nb_goal)
+    dies_exp = dies.unsqueeze(-1).expand_as(edge)
+
+    def _rate(mask: torch.Tensor) -> float:
+        n = int(mask.sum().item())
+        if n == 0:
+            return float("nan")
+        return float(dies_exp[mask].float().mean().item())
+
+    same_r = _rate(same_edge)
+    cross_r = _rate(cross_edge)
+    gap = (
+        cross_r - same_r
+        if np.isfinite(same_r) and np.isfinite(cross_r)
+        else float("nan")
+    )
+    return {
+        "death_rate_same_edge": same_r,
+        "death_rate_cross_edge": cross_r,
+        "death_rate_cross_minus_same": gap,
+        "n_same_edges": float(same_edge.sum().item()),
+        "n_cross_edges": float(cross_edge.sum().item()),
+    }
+
+
+@torch.no_grad()
 def _vote_diagnostics(state, step_out) -> dict[str, float]:
     votes = step_out.outgoing_votes  # (N,N,8,2)
     help_v = votes[..., 0]
@@ -116,6 +162,11 @@ def run_experiment(
         "vote_E_help_kin": [],
         "vote_E_harm_foe": [],
         "same_goal_edge_frac": [],
+        "death_rate_same_edge": [],
+        "death_rate_cross_edge": [],
+        "death_rate_cross_minus_same": [],
+        "n_same_edges": [],
+        "n_cross_edges": [],
     }
 
     n = int(cfg.n_steps)
@@ -147,6 +198,11 @@ def run_experiment(
 
         diag = _vote_diagnostics(state, step_out)
         for k, v in diag.items():
+            buckets[k].append(v)
+
+        # Typed edge death rates use pre-step state vs next-step alive.
+        death = _typed_edge_death_rates(state, step_out.next_state.x)
+        for k, v in death.items():
             buckets[k].append(v)
 
         if log_every and (t % log_every == 0 or t == n - 1):
