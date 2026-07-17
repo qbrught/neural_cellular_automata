@@ -1,0 +1,160 @@
+"""Paper version registry.
+
+Each version is a named ablation of the system defined by Config flags.
+The suite applies these flags on top of a shared base config + seed so
+comparisons isolate the mechanism change, not hyperparameters.
+
+Roadmap (matches the planned A→D path):
+  original  — single indiscriminate vote channel
+  A         — typed help/harm votes routed by kin/foe   [implemented]
+  B         — predator–prey losses                       [flag reserved]
+  C         — goal inheritance / colonization            [flag reserved]
+  D         — own goal into f                            [flag reserved]
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from typing import Callable
+
+from config import Config
+
+
+@dataclass(frozen=True)
+class VersionSpec:
+    """One paper version / ablation."""
+
+    id: str
+    title: str
+    description: str
+    # Flags applied to a base Config.
+    typed_votes: bool = True
+    predator_prey_loss: bool = False
+    goal_inheritance: bool = False
+    goal_in_f: bool = False
+    # Whether this version is fully implemented (suite can run it).
+    implemented: bool = True
+    # Free-text experimental hypothesis for the report template.
+    hypothesis: str = ""
+
+    def apply(self, cfg: Config) -> Config:
+        """Return a copy of cfg with this version's flags set."""
+        if not self.implemented:
+            raise RuntimeError(
+                f"Version {self.id!r} is not implemented yet "
+                f"({self.title}). Implement the mechanism before running."
+            )
+        return replace(
+            cfg,
+            typed_votes=self.typed_votes,
+            predator_prey_loss=self.predator_prey_loss,
+            goal_inheritance=self.goal_inheritance,
+            goal_in_f=self.goal_in_f,
+        )
+
+
+VERSIONS: dict[str, VersionSpec] = {
+    "original": VersionSpec(
+        id="original",
+        title="Original (indiscriminate votes)",
+        description=(
+            "Single vote channel: ψ help-head is applied to all receivers; "
+            "V_foe is zero. Kin-selective loss may still be active. "
+            "This is the pre-step-A baseline for measuring typed-vote impact."
+        ),
+        typed_votes=False,
+        implemented=True,
+        hypothesis=(
+            "Reproducer and eliminator alive counts track total density "
+            "(corr≈1); votes do not specialize by receiver type."
+        ),
+    ),
+    "A": VersionSpec(
+        id="A",
+        title="Step A — typed help/harm votes",
+        description=(
+            "ψ emits (v_help, v_harm). Survival uses "
+            "V_kin = same-goal help votes and V_foe = opposite-goal harm votes "
+            "with separate weights w4_help / w4_harm."
+        ),
+        typed_votes=True,
+        implemented=True,
+        hypothesis=(
+            "Alive-count coupling drops; vote specialization "
+            "(help→kin, harm→foe) emerges; type ratio can drift over time."
+        ),
+    ),
+    "B": VersionSpec(
+        id="B",
+        title="Step B — predator–prey loss",
+        description=(
+            "Asymmetric losses: eliminators target only reproducers; "
+            "reproducers protect kin and pressure foes. Builds on A."
+        ),
+        typed_votes=True,
+        predator_prey_loss=True,
+        implemented=False,
+        hypothesis=(
+            "Eliminator votes concentrate on prey; stronger role divergence "
+            "than A alone."
+        ),
+    ),
+    "C": VersionSpec(
+        id="C",
+        title="Step C — goal inheritance",
+        description=(
+            "On birth / revival, a cell can adopt a neighbour's goal "
+            "(colonization). Builds on A+B when those are on."
+        ),
+        typed_votes=True,
+        predator_prey_loss=True,
+        goal_inheritance=True,
+        implemented=False,
+        hypothesis=(
+            "Type fractions become dynamical (not fixed labels); "
+            "true expansion/contraction of roles."
+        ),
+    ),
+    "D": VersionSpec(
+        id="D",
+        title="Step D — goal-conditioned f",
+        description=(
+            "Local update f receives own goal so memory/state strategies "
+            "can become type-specific."
+        ),
+        typed_votes=True,
+        predator_prey_loss=True,
+        goal_inheritance=True,
+        goal_in_f=True,
+        implemented=False,
+        hypothesis=(
+            "Type-specific internal dynamics (clustering vs hunting) "
+            "appear in s/h and local environment stats."
+        ),
+    ),
+}
+
+
+def get_version(version_id: str) -> VersionSpec:
+    key = version_id.strip()
+    if key not in VERSIONS:
+        known = ", ".join(VERSIONS)
+        raise KeyError(f"Unknown version {version_id!r}. Known: {known}")
+    return VERSIONS[key]
+
+
+def parse_version_list(spec: str) -> list[VersionSpec]:
+    """Parse 'original,A' or 'all' into implemented VersionSpecs."""
+    spec = spec.strip()
+    if spec.lower() == "all":
+        ids = [v.id for v in VERSIONS.values() if v.implemented]
+    else:
+        ids = [p.strip() for p in spec.split(",") if p.strip()]
+    out = [get_version(i) for i in ids]
+    for v in out:
+        if not v.implemented:
+            raise RuntimeError(
+                f"Version {v.id} is not implemented yet. "
+                f"Remove it from --versions or implement the feature first."
+            )
+    return out

@@ -3,6 +3,10 @@
 Standalone scripts for probing the NCSA system. Each runs from the project
 root, saves output under `runs/exp*/`, and prints a text summary.
 
+**For paper version comparisons (original → A → B → C → D)** use the
+centralized suite instead: `python -m research.suite run` — see
+[`../research/README.md`](../research/README.md).
+
 Run any with:  `python -m experiments.exp1_frozen_vs_trained`
 
 Most import `_common.run_metrics`, which runs a sim and returns per-step
