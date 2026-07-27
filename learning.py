@@ -67,13 +67,14 @@ def compute_local_losses(
 ) -> Tensor:
     """Compute per-cell local losses with gradient-locality detach tricks.
 
-    Loss structure (Path 1 + kin-selective neighbour term):
+    Loss structure (Path 1 + typed neighbour term):
 
         L_i = -p_i + sum_k c_{i,k} * p_{nbr k}
 
-    where c depends on goals (reproducers protect kin / pressure foes;
-    eliminators pressure all neighbours). The -p_i term is unsigned:
-    both types want themselves alive.
+    where c depends on goals. Reproducers always protect kin and pressure
+    foes. Eliminators either pressure all neighbours (default) or, with
+    cfg.predator_prey_loss (step B), only reproducer (prey) neighbours.
+    The -p_i term is unsigned: both types want themselves alive.
 
     Gradient paths (only ones we want to KEEP):
       * p_i through u . s_proposed_i  ->  this cell's f params
@@ -157,19 +158,28 @@ def compute_local_losses(
     # =========================================================================
     # Combine: self term (always wants self alive) + signed neighbour term.
     # =========================================================================
-    # KIN-SELECTIVE LOSS.
-    #   reproducer i: wants REPRODUCER neighbours alive, ELIMINATOR neighbours dead
-    #   eliminator i: wants ALL neighbours dead (unchanged)
-    # Per-neighbour coefficient c[i, k] multiplies p_at_neighbour[i, k].
+    # Neighbour coefficients c[i,k] multiply p_at_neighbour[i,k].
+    # Negative ⇒ wants neighbour alive; positive ⇒ wants neighbour dead.
+    #
+    # Reproducer (always kin-selective):
+    #   -1 on reproducer neighbours (protect kin)
+    #   +1 on eliminator neighbours (pressure foes)
+    #
+    # Eliminator:
+    #   default (predator_prey_loss=False): +1 on everyone (indiscriminate kill)
+    #   step B   (predator_prey_loss=True):  +1 on reproducer neighbours only
+    #                                       (prey); 0 on fellow eliminators
     nb_is_repro = gather_neighbours(
         (state.goals == GOAL_REPRODUCE).float()
     )                                                    # (N, N, 8)
     i_is_repro = (state.goals == GOAL_REPRODUCE).float().unsqueeze(-1)  # (N, N, 1)
 
-    # reproducer's coefficients: -1 on reproducer neighbours, +1 on eliminators
     coef_repro = -1.0 * nb_is_repro + 1.0 * (1.0 - nb_is_repro)
-    # eliminator's coefficients: +1 on everyone (kill all)
-    coef_elim = torch.ones_like(nb_is_repro)
+    if cfg.predator_prey_loss:
+        # Predator–prey: elim only pressures prey (reproducers).
+        coef_elim = 1.0 * nb_is_repro
+    else:
+        coef_elim = torch.ones_like(nb_is_repro)
 
     coef = i_is_repro * coef_repro + (1.0 - i_is_repro) * coef_elim   # (N, N, 8)
     weighted_neighbours = (coef * p_at_neighbour).sum(dim=2)          # (N, N)

@@ -33,7 +33,9 @@ class Config:
     #   True  = dual votes with goal routing (version A)
     typed_votes: bool = True
     # Placeholders for later steps (wired as they are implemented):
-    predator_prey_loss: bool = False   # Step B
+    # Step B: eliminators only pressure reproducer (prey) neighbours;
+    # fellow eliminators are neutral in the loss (not +kill-all).
+    predator_prey_loss: bool = False
     goal_inheritance: bool = False     # Step C
     goal_in_f: bool = False            # Step D
 
