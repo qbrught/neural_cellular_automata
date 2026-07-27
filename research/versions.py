@@ -7,7 +7,7 @@ comparisons isolate the mechanism change, not hyperparameters.
 Roadmap (matches the planned A→D path):
   original  — single indiscriminate vote channel
   A         — typed help/harm votes routed by kin/foe   [implemented]
-  B         — predator–prey losses                       [flag reserved]
+  B         — predator–prey losses                       [implemented]
   C         — goal inheritance / colonization            [flag reserved]
   D         — own goal into f                            [flag reserved]
 """
@@ -88,15 +88,16 @@ VERSIONS: dict[str, VersionSpec] = {
         id="B",
         title="Step B — predator–prey loss",
         description=(
-            "Asymmetric losses: eliminators target only reproducers; "
-            "reproducers protect kin and pressure foes. Builds on A."
+            "Builds on A (typed votes). Loss is asymmetric: eliminators "
+            "pressure only reproducer (prey) neighbours and are neutral on "
+            "fellow eliminators; reproducers still protect kin and pressure foes."
         ),
         typed_votes=True,
         predator_prey_loss=True,
-        implemented=False,
+        implemented=True,
         hypothesis=(
-            "Eliminator votes concentrate on prey; stronger role divergence "
-            "than A alone."
+            "Eliminator harm specializes on prey; death gap and vote disc "
+            "for E improve vs A; less self-destructive elim pressure."
         ),
     ),
     "C": VersionSpec(

@@ -25,6 +25,11 @@ class Config:
     eta: float = 0.01  # SGD learning rate
     n_steps: int | None = 4000  # simulation steps; None means run indefinitely
     learn: bool = True
+    # If True, gradient flows through aggregated messages M into senders' ψ
+    # message heads (via -p_i → s̃_i → M_i). Default False keeps Path-1
+    # locality: each cell's loss only touches params at that cell.
+    # See dynamics.local_update for the tradeoff.
+    learn_messages: bool = False
     require_alive_neighbour: bool = True  # if True, a cell needs A_i > 0 to be alive next step
 
     # ---- Research version flags (paper ablation path) ----

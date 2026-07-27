@@ -6,10 +6,12 @@
 .env.*
 !.env.example
 
-
-# Python cache
+# Python cache / tooling
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Python virtual environments
 venv/
@@ -20,3 +22,13 @@ node_modules/
 
 # Logs
 *.log
+
+# Simulation / experiment / discovery outputs (regenerable artifacts)
+runs/
+discoveries/
+research_results/
+
+# Heavy model / trajectory dumps if written outside those dirs
+*.pt
+trajectory.npz
+params_final.pt

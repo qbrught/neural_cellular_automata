@@ -80,13 +80,19 @@ def compute_local_losses(
       * p_i through u . s_proposed_i  ->  this cell's f params
       * p_j through V_kin_j / V_foe_j ->  this cell's psi via the routed
                                           outgoing vote channel
+      * p_i through M_i (if cfg.learn_messages): senders' ψ message heads
+        (one-hop; see dynamics.local_update). Default off.
 
     Gradient paths we must KILL via detach:
       * p_i through V_kin_i / V_foe_i (votes IN to i)
       * p_j through u . s_proposed_j
+      * p_i through M_i when learn_messages=False: message head stays frozen.
 
     Returns:
-        Tensor of shape (N, N): per-cell losses.
+        Tensor of shape (N, N): per-cell losses. With learn_messages=False,
+        losses.sum().backward() respects per-cell param locality. With
+        learn_messages=True, self-survival terms also touch neighbours' ψ
+        message heads (intentional).
     """
     surv_in = step_out.survival_inputs
     outgoing = step_out.outgoing_votes       # (N, N, 8, 2): help, harm

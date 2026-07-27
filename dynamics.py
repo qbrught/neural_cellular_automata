@@ -376,6 +376,7 @@ def local_update(
     state: State,
     aggregated_messages: Tensor,
     params: Parameters,
+    learn_messages: bool = False,
 ) -> tuple[Tensor, Tensor]:
     """Run f to produce proposed next (s, h) for every cell.
 
@@ -386,18 +387,22 @@ def local_update(
     *proposals* before survival is applied; surviving cells use them,
     dead cells get them zeroed out.
 
-    LOCALITY NOTE (Path 1): we detach `aggregated_messages` before feeding it
-    into f. Without this, gradient through `s_proposed[i]` would flow back
-    through the messages cell `i` received from its 8 neighbours, into those
-    neighbours' psi parameters — a locality violation. With the detach,
-    `s_proposed[i]` only carries gradient back to `params.f[i]`, which is
-    what we want for the f-signal channel. The message-as-f-input channel
-    will be activated in a later version that runs BPTT through messages.
+    Message gradient (`learn_messages`, default False):
+      * False (Path 1 locality): detach M before f. Then s_proposed[i] only
+        carries gradient to params.f[i]. ψ's message head gets no training
+        signal; M still affects the forward pass as a frozen feature.
+      * True: keep M live. Gradient of -p_i through u·s_i flows into the
+        messages cell i received, and therefore into the *senders'* ψ
+        message heads (one-hop leakage). Under losses.sum().backward() each
+        cell's message head is trained by its neighbours' self-survival
+        terms — which is the natural credit assignment for an influence
+        channel. Vote-channel locality (V-detach trick) is unchanged.
     """
     d = state.d
     own_x = state.x.unsqueeze(-1)  # (N, N, 1)
+    messages = aggregated_messages if learn_messages else aggregated_messages.detach()
     f_in = torch.cat(
-        [state.s, state.h, own_x, aggregated_messages.detach()],
+        [state.s, state.h, own_x, messages],
         dim=-1,
     )
     f_out = batched_mlp(f_in, params.f_W1, params.f_b1, params.f_W2, params.f_b2)
@@ -431,7 +436,9 @@ def forward_step(state: State, params: Parameters, u: Tensor, cfg: Config) -> St
         4. Mask: zero out s and h for cells that died.
     """
     mp = message_pass(state, params, typed_votes=cfg.typed_votes)
-    s_proposed, h_proposed = local_update(state, mp.aggregated_messages, params)
+    s_proposed, h_proposed = local_update(
+        state, mp.aggregated_messages, params, learn_messages=cfg.learn_messages
+    )
 
     surv_in = compute_survival_inputs(
         state, mp.V_kin, mp.V_foe, s_proposed, u,

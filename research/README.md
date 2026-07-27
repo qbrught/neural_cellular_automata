@@ -8,7 +8,7 @@ Versions form an ablation path:
 | --- | --- | --- |
 | `original` | Indiscriminate single vote channel | implemented |
 | `A` | Typed help/harm votes (kin/foe routing) | implemented |
-| `B` | Predator–prey loss | planned |
+| `B` | Predator–prey loss (on top of A) | implemented |
 | `C` | Goal inheritance / colonization | planned |
 | `D` | Goal-conditioned local update `f` | planned |
 
@@ -58,6 +58,7 @@ Open `REPORT.md` after a run.
 | `ra/ea early → late` | Role divergence over time |
 | `corr(Lr,Le)` | Loss coupling (mirror vs independent) |
 | vote discrimination | Did help/harm specialize by receiver type? |
+| typed edge death rates | Sender death rate on same-type vs cross-type edges; gap = cross−same |
 | segregation | Spatial clustering of goals among alive cells |
 | extinction | Viability cost of the change |
 
@@ -72,10 +73,11 @@ python server.py
 
 | Flag | UI label | Version |
 | --- | --- | --- |
-| `typed_votes` | Typed votes A | original=0, A=1 |
-| `predator_prey_loss` | Pred-prey loss B | (reserved) |
+| `typed_votes` | Typed votes A | original=0, A/B=1 |
+| `predator_prey_loss` | Pred-prey loss B | A=0, B=1 |
 | `goal_inheritance` | Goal inherit C | (reserved) |
 | `goal_in_f` | Goal in f D | (reserved) |
+| `learn_messages` | Learn messages | off=Path-1 (message head dead); on=one-hop live M |
 
 **Workflow for writing:**
 
@@ -108,3 +110,11 @@ No chart/report code changes needed — new versions plug into the same suite.
 | --- | --- |
 | `experiments/` | One-off scientific questions (frozen vs trained, w3 sweep, …) |
 | `research/` | **Version ablation suite** for the paper narrative (original→A→B→C→D) |
+
+**Channel audit (not a version ablation):** `experiments/exp6_message_channel_dead`
+proves mathematically and empirically that ψ’s message head $W_2^{(m)}$ is
+gradient-dead under Path-1 (`stopgrad(M)`), which is the **default**
+(`Config.learn_messages=False`). Set `learn_messages=True` (UI: “Learn
+messages”) to train the message head via one-hop leakage into senders’ ψ.
+Use exp6’s `REPORT.md` whenever the paper discusses learned signalling.
+Unit tests: `tests/test_message_head_dead.py`.

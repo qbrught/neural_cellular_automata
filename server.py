@@ -55,6 +55,7 @@ UI_FIELDS = [
     ("hidden", "MLP hidden", "int", 4, 128, 1),
     ("eta", "Learning rate η", "float", 0.0, 1.0, 0.001),
     ("learn", "Learn (0/1)", "int", 0, 1, 1),
+    ("learn_messages", "Learn messages (0/1)", "int", 0, 1, 1),
     ("require_alive_neighbour", "Require alive nbr (0/1)", "int", 0, 1, 1),
     ("typed_votes", "Typed votes A (0/1)", "int", 0, 1, 1),
     ("predator_prey_loss", "Pred-prey loss B (0/1)", "int", 0, 1, 1),
@@ -103,6 +104,7 @@ def payload_to_cfg(values: dict) -> Config:
         kind = field_kinds[k]
         if k in (
             "learn",
+            "learn_messages",
             "require_alive_neighbour",
             "typed_votes",
             "predator_prey_loss",

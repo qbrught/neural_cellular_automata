@@ -40,13 +40,20 @@ while params still move).
 and measures whether the population expands, holds, or collapses. Gates
 whether the growing/infinite-grid direction is worth building.
 
+**exp6_message_channel_dead** — Proves the ψ **message head is not learned**
+under Path-1 detaches (exact zero grad + bit-identical weights after SGD).
+Documents the claim mathematically; includes a live-`M` counterfactual.
+*Paper-critical for any “learned signalling” language.*
+Also: `python tests/test_message_head_dead.py`.
+
 ## Suggested order
 
 1. exp1 — establish that learning matters at all
 2. exp2 — establish that state matters (validates the core design goal)
-3. exp4 — understand whether the system settles
-4. exp3 — understand what the fixed weights control
-5. exp5 — decide whether growing-grid work is worth it
+3. exp6 — establish which channels actually train (messages vs votes)
+4. exp4 — understand whether the system settles
+5. exp3 — understand what the fixed weights control
+6. exp5 — decide whether growing-grid work is worth it
 
 Don't run all at once. Pick the question you most want answered, run it,
 write down what you found before moving on.
