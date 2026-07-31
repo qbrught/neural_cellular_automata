@@ -255,6 +255,27 @@ def plot_comparison_dashboard(
         title="Typed death gap (cross − same; >0 ⇒ cross more lethal)",
     )
 
+    # Step C: goal fraction over time (all cells). Only meaningful when
+    # goal_inheritance is on; still plotted for all versions for comparison.
+    has_goal_frac = any(
+        "goal_frac_repro" in r.get("series", {}) for r in results
+    )
+    if has_goal_frac:
+        paths["goal_frac"] = plot_version_overlay(
+            results,
+            out_dir / "17_goal_frac_repro.png",
+            metric_key="goal_frac_repro",
+            ylabel="frac goal=REPRO (all cells)",
+            title="Goal composition over time (Step C colonization)",
+        )
+        paths["alive_goal_frac"] = plot_version_overlay(
+            results,
+            out_dir / "18_alive_goal_frac_repro.png",
+            metric_key="alive_goal_frac_repro",
+            ylabel="frac goal=REPRO (alive)",
+            title="Alive type fraction over time",
+        )
+
     # Scalar bar chart: corr(ra,ea) by version
     _style()
     by_v: dict[str, list[float]] = {}

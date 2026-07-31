@@ -9,7 +9,7 @@ Versions form an ablation path:
 | `original` | Indiscriminate single vote channel | implemented |
 | `A` | Typed help/harm votes (kin/foe routing) | implemented |
 | `B` | Predator–prey loss (on top of A) | implemented |
-| `C` | Goal inheritance / colonization | planned |
+| `C` | Goal inheritance / colonization | implemented |
 | `D` | Goal-conditioned local update `f` | planned |
 
 Every suite run produces the same artifact layout so you can drop results into the paper and fill `NOTES.md` with manual UI observations.
@@ -60,6 +60,8 @@ Open `REPORT.md` after a run.
 | vote discrimination | Did help/harm specialize by receiver type? |
 | typed edge death rates | Sender death rate on same-type vs cross-type edges; gap = cross−same |
 | segregation | Spatial clustering of goals among alive cells |
+| `g_frac drift` | Final − initial goal=REPRO fraction (all cells); ~0 without C |
+| `mean\|Δg_alive\|` | Mean step-to-step \|Δ\| of alive type fraction (colonization churn) |
 | extinction | Viability cost of the change |
 
 ## Interactive UI (manual observations)
@@ -75,7 +77,7 @@ python server.py
 | --- | --- | --- |
 | `typed_votes` | Typed votes A | original=0, A/B=1 |
 | `predator_prey_loss` | Pred-prey loss B | A=0, B=1 |
-| `goal_inheritance` | Goal inherit C | (reserved) |
+| `goal_inheritance` | Goal inherit C | B=0, C=1 (births adopt majority neighbour goal) |
 | `goal_in_f` | Goal in f D | (reserved) |
 | `learn_messages` | Learn messages | off=Path-1 (message head dead); on=one-hop live M |
 

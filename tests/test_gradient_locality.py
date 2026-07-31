@@ -329,6 +329,40 @@ def _soft_p_at_each_neighbour(state, step_out, cfg):
     )
 
 
+def test_locality_holds_with_goal_inheritance():
+    """Step C goals are discrete/detached: locality must still hold."""
+    cfg, state, params, u = make_world(N=5, seed=0)
+    cfg.goal_inheritance = True
+    state.x[:] = 1.0
+    step = forward_step(state, params, u, cfg)
+    losses = compute_local_losses(state, step, cfg)
+    target_cell = (1, 1)
+    L = losses[target_cell[0], target_cell[1]]
+
+    for t in params.tensors():
+        if t.grad is not None:
+            t.grad.zero_()
+    L.backward()
+
+    for name, t in zip(
+        ["psi_W1", "psi_b1", "psi_W2", "psi_b2",
+         "f_W1", "f_b1", "f_W2", "f_b2"],
+        params.tensors(),
+    ):
+        if t.grad is None:
+            continue
+        N = cfg.N
+        for i in range(N):
+            for j in range(N):
+                slot_grad = t.grad[i, j]
+                if (i, j) != target_cell:
+                    assert slot_grad.abs().sum().item() == 0.0, (
+                        f"LOCALITY VIOLATION with goal_inheritance: "
+                        f"{name}[{i},{j}] nonzero from cell {target_cell}"
+                    )
+    print("test_locality_holds_with_goal_inheritance OK")
+
+
 if __name__ == "__main__":
     test_single_cell_loss_grad_is_local()
     test_f_params_now_get_gradient()
@@ -338,4 +372,5 @@ if __name__ == "__main__":
     test_vote_channel_reproducer_pushes_neighbours_alive()
     test_vote_channel_eliminator_pushes_neighbours_dead()
     test_f_signal_channel_pushes_self_alive()
+    test_locality_holds_with_goal_inheritance()
     print("\nAll gradient locality tests passed.")

@@ -33,7 +33,7 @@ from torch import Tensor
 from config import Config
 from grid import gather_neighbours
 from parameters import Parameters, batched_mlp, psi_out_dim
-from state import State
+from state import GOAL_ELIMINATE, GOAL_REPRODUCE, State
 
 
 @dataclass
@@ -411,6 +411,73 @@ def local_update(
     return s_proposed, h_proposed
 
 
+# Goal inheritance (Step C)
+
+def inherit_goals(state: State, x_next: Tensor, cfg: Config) -> Tensor:
+    """Next goals after survival (Step C: colonization / goal inheritance).
+
+    When ``cfg.goal_inheritance`` is False, goals are returned unchanged
+    (clone of ``state.goals``). When True, only **birth** cells adopt a new
+    goal:
+
+        birth = (x_t == 0) & (x_{t+1} == 1)
+
+    Rule (v1, fully vectorized, deterministic, non-differentiable):
+      1. Consider pre-step (time t) alive Moore neighbours only.
+      2. Majority of their goals → REPRODUCE or ELIMINATE.
+      3. Tie (equal non-zero counts): take the goal of the alive neighbour
+         with highest ``rho``; if still tied (identical rho), ``argmax``
+         picks the lowest neighbour index (stable).
+      4. No alive neighbours: keep the cell's previous (latent) goal.
+
+    Survivors (alive→alive) and pure deaths keep their goals. Dead cells
+    that stay dead keep latent labels for a possible later revival.
+
+    Returns:
+        (N, N) long tensor in {GOAL_REPRODUCE, GOAL_ELIMINATE}, detached.
+    """
+    goals = state.goals.detach().clone()
+    if not cfg.goal_inheritance:
+        return goals
+
+    birth = (state.x <= 0) & (x_next > 0)
+    if not birth.any():
+        return goals
+
+    # Parents = pre-step alive neighbours (not post-step simultaneous births).
+    g_n = gather_neighbours(state.goals.float())   # (N, N, 8)
+    a_n = gather_neighbours(state.x) > 0           # (N, N, 8)
+    rho_n = gather_neighbours(state.rho)           # (N, N, 8)
+
+    repro_n = ((g_n == float(GOAL_REPRODUCE)) & a_n).float().sum(dim=-1)
+    elim_n = ((g_n == float(GOAL_ELIMINATE)) & a_n).float().sum(dim=-1)
+
+    new_goal = goals.clone()
+    new_goal = torch.where(
+        repro_n > elim_n,
+        torch.full_like(new_goal, GOAL_REPRODUCE),
+        new_goal,
+    )
+    new_goal = torch.where(
+        elim_n > repro_n,
+        torch.full_like(new_goal, GOAL_ELIMINATE),
+        new_goal,
+    )
+
+    # Tie-break: max-rho among alive neighbours (dead slots → -inf).
+    tie = (repro_n == elim_n) & ((repro_n + elim_n) > 0)
+    if tie.any():
+        rho_masked = rho_n.masked_fill(~a_n, float("-inf"))
+        k_star = rho_masked.argmax(dim=-1)  # (N, N)
+        parent_goal = (
+            g_n.gather(2, k_star.unsqueeze(-1)).squeeze(-1).long()
+        )
+        new_goal = torch.where(tie, parent_goal, new_goal)
+
+    goals = torch.where(birth, new_goal, goals)
+    return goals.long().detach()
+
+
 # Full forward step
 
 @dataclass
@@ -433,7 +500,8 @@ def forward_step(state: State, params: Parameters, u: Tensor, cfg: Config) -> St
         1. Message pass: messages + typed vote aggregates.
         2. Local update: propose new s and h.
         3. Survival: A, R, E + V_kin, V_foe + f-signal; hard threshold.
-        4. Mask: zero out s and h for cells that died.
+        4. Goal inheritance (Step C): birth cells may adopt neighbour goals.
+        5. Mask: zero out s and h for cells that died.
     """
     mp = message_pass(state, params, typed_votes=cfg.typed_votes)
     s_proposed, h_proposed = local_update(
@@ -445,6 +513,9 @@ def forward_step(state: State, params: Parameters, u: Tensor, cfg: Config) -> St
     )
     x_next = hard_survival(surv_in, cfg)
 
+    # Step C: colonization — only births update goals (when flag on).
+    goals_next = inherit_goals(state, x_next, cfg)
+
     # Apply alive mask.
     mask = x_next.unsqueeze(-1)  # (N, N, 1)
     s_next = s_proposed * mask
@@ -454,8 +525,8 @@ def forward_step(state: State, params: Parameters, u: Tensor, cfg: Config) -> St
         x=x_next.detach(),
         s=s_next.detach(),
         h=h_next.detach(),
-        goals=state.goals,  # immutable
-        rho=state.rho,      # immutable
+        goals=goals_next,   # fixed unless goal_inheritance
+        rho=state.rho,      # always immutable
     )
     return StepOutput(
         next_state=next_state,

@@ -62,6 +62,7 @@ class Snapshot:
     x: np.ndarray            # (N, N) uint8
     s: np.ndarray | None     # (N, N, d) float32 or None
     h: np.ndarray | None     # (N, N, d) float32 or None
+    goals: np.ndarray        # (N, N) uint8 — may change under goal_inheritance
     alive_count: int
     reproducer_alive: int
     eliminator_alive: int
@@ -83,6 +84,7 @@ def make_snapshot(
         x=state.x.detach().cpu().numpy().astype(np.uint8),
         s=state.s.detach().cpu().numpy().astype(np.float32) if include_vectors else None,
         h=state.h.detach().cpu().numpy().astype(np.float32) if include_vectors else None,
+        goals=state.goals.detach().cpu().numpy().astype(np.uint8),
         alive_count=stats["n_alive"],
         reproducer_alive=repro_alive,
         eliminator_alive=elim_alive,
@@ -94,14 +96,14 @@ def make_snapshot(
 
 def save_trajectory(
     snapshots: list[Snapshot],
-    goals: np.ndarray,
     rho: np.ndarray,
     out_path: Path,
 ) -> None:
     """Stack all snapshots into one .npz file.
 
-    Goals and rho are saved separately (constant across the run, no need to
-    store per-step copies).
+    Goals are saved per step as (T, N, N) so Step C (goal inheritance) is
+    analysable. Older loaders that expect 2D goals should treat ndim==2 as
+    constant over time. rho remains constant (N, N).
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     arrays = {
@@ -123,7 +125,7 @@ def save_trajectory(
         "loss_total": np.array(
             [s.loss_total for s in snapshots], dtype=np.float32
         ),
-        "goals": goals,
+        "goals": np.stack([s.goals for s in snapshots]),  # (T, N, N) uint8
         "rho": rho,
     }
     if snapshots[0].s is not None:
@@ -149,8 +151,7 @@ def run(cfg: Config, output_dir: str | Path | None = None,
     grid = build_grid(cfg)
     state, params, u = grid.state, grid.params, grid.u
 
-    # Persist constant per-cell attributes once.
-    goals_np = state.goals.detach().cpu().numpy().astype(np.uint8)
+    # rho is immutable; goals may change under goal_inheritance (saved per step).
     rho_np = state.rho.detach().cpu().numpy().astype(np.float32)
 
     snapshots: list[Snapshot] = []
@@ -196,7 +197,7 @@ def run(cfg: Config, output_dir: str | Path | None = None,
 
     # Write outputs.
     cfg.save(output_dir / "config.json")
-    save_trajectory(snapshots, goals_np, rho_np, output_dir / "trajectory.npz")
+    save_trajectory(snapshots, rho_np, output_dir / "trajectory.npz")
     params.detach_clone().save(output_dir / "params_final.pt")
 
     if verbose:

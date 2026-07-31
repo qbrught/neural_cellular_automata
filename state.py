@@ -8,9 +8,14 @@ There are two kinds of per-cell data here:
    - s:  observable state vector, shape (N, N, d)
    - h:  memory vector, shape (N, N, d)
 
-2. Immutable per-cell attributes, fixed at init:
-   - goals: per-cell goal in {0=reproduce, 1=eliminate}, shape (N, N), int
-   - rho:   per-cell communication rate in (0, 1), shape (N, N), float
+2. Per-cell attributes fixed at init (with one optional exception):
+   - goals: per-cell goal in {0=reproduce, 1=eliminate}, shape (N, N), int.
+     Fixed for the whole run when ``goal_inheritance=False`` (default).
+     With Step C (``goal_inheritance=True``), only **birth** cells
+     (dead → alive) may adopt a neighbour's goal; survivors and pure
+     deaths keep their labels (dead cells keep a latent goal until revival).
+   - rho:   per-cell communication rate in (0, 1), shape (N, N), float.
+     Always fixed for the whole run.
 
 The Parameters tensors (psi/f MLP weights) are mutable too but live in
 parameters.py because they have a separate lifecycle (gradient updates,
@@ -33,8 +38,8 @@ class State:
     x: Tensor      # (N, N)         alive flag, float in {0.0, 1.0}
     s: Tensor      # (N, N, d)      observable state
     h: Tensor      # (N, N, d)      memory
-    goals: Tensor  # (N, N)         int in {0, 1}, FIXED
-    rho: Tensor    # (N, N)         float in (0, 1), FIXED
+    goals: Tensor  # (N, N)         int in {0, 1}; fixed unless goal_inheritance
+    rho: Tensor    # (N, N)         float in (0, 1), always FIXED
 
     @property
     def N(self) -> int:
@@ -73,7 +78,9 @@ def init_state(
     - x: Bernoulli(init_alive_prob) per cell.
     - s, h: zeros (dead cells have no signal to propagate, alive cells start
             blank and accumulate state through dynamics).
-    - goals: Uniform({reproduce, eliminate}) per cell, FIXED for the run.
+    - goals: Uniform({reproduce, eliminate}) per cell. Fixed for the run
+             unless ``Config.goal_inheritance`` (Step C) is on, in which
+             case birth cells inherit majority alive-neighbour goals.
     - rho:   Uniform(0, 1) per cell, FIXED for the run.
     """
     x = (

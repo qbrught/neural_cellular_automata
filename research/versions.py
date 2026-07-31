@@ -8,7 +8,7 @@ Roadmap (matches the planned A→D path):
   original  — single indiscriminate vote channel
   A         — typed help/harm votes routed by kin/foe   [implemented]
   B         — predator–prey losses                       [implemented]
-  C         — goal inheritance / colonization            [flag reserved]
+  C         — goal inheritance / colonization            [implemented]
   D         — own goal into f                            [flag reserved]
 """
 
@@ -104,16 +104,17 @@ VERSIONS: dict[str, VersionSpec] = {
         id="C",
         title="Step C — goal inheritance",
         description=(
-            "On birth / revival, a cell can adopt a neighbour's goal "
-            "(colonization). Builds on A+B when those are on."
+            "On birth (dead→alive), a cell adopts the majority goal among "
+            "pre-step alive Moore neighbours (tie → max-rho neighbour). "
+            "Survivors and pure deaths keep goals; rho stays fixed. Builds on A+B."
         ),
         typed_votes=True,
         predator_prey_loss=True,
         goal_inheritance=True,
-        implemented=False,
+        implemented=True,
         hypothesis=(
-            "Type fractions become dynamical (not fixed labels); "
-            "true expansion/contraction of roles."
+            "Goal-frac drifts (|final−init| ≫ 0); corr(ra, dens_using_init_frac) "
+            "drops; type ratios and segregation become more dynamical (invasion)."
         ),
     ),
     "D": VersionSpec(

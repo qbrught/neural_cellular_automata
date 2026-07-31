@@ -9,8 +9,8 @@ Colour encoding for the grid:
   green       : alive reproducer
   red         : alive eliminator
 
-The goal field is per-cell and immutable across steps, so we can colour
-every alive cell by (alive flag x goal type) using a single static palette.
+Goals may be constant (legacy 2D array) or time-varying (Step C: shape
+(T, N, N)). Alive cells are coloured by (alive flag × goal type).
 """
 
 from __future__ import annotations
@@ -22,6 +22,13 @@ import numpy as np
 from matplotlib import animation, colors
 
 from state import GOAL_ELIMINATE, GOAL_REPRODUCE
+
+
+def _goals_at(goals: np.ndarray, t: int) -> np.ndarray:
+    """Goals for frame t. Accepts legacy 2D (constant) or 3D (T, N, N)."""
+    if goals.ndim == 3:
+        return goals[t]
+    return goals
 
 # Cell display state codes:
 #   0 = dead
@@ -107,7 +114,7 @@ def render_final_grid(
         out_path = traj_path.with_name("final_grid.svg")
 
     x = traj["x"]
-    goals = traj["goals"]
+    goals = _goals_at(traj["goals"], -1 if traj["goals"].ndim == 3 else 0)
     final_display = _display_grid(x[-1], goals)
 
     fig = plt.figure(figsize=(size, size))
@@ -146,6 +153,7 @@ def render_summary(traj_path: Path, out_path: Path | None = None) -> Path:
 
     x = traj["x"]
     goals = traj["goals"]
+    goals_final = _goals_at(goals, -1 if goals.ndim == 3 else 0)
     steps = traj["step"]
     n_repro_alive = traj["reproducer_alive"]
     n_elim_alive = traj["eliminator_alive"]
@@ -157,7 +165,7 @@ def render_summary(traj_path: Path, out_path: Path | None = None) -> Path:
 
     # --- Final grid ---
     ax = axes[0, 0]
-    final_display = _display_grid(x[-1], goals)
+    final_display = _display_grid(x[-1], goals_final)
     ax.imshow(final_display, cmap=_CMAP, norm=_NORM, interpolation="nearest")
     ax.set_title(f"Final state (step {steps[-1]})")
     ax.set_xticks([])
@@ -237,7 +245,11 @@ def render_animation(
 
     x = traj["x"][::stride]
     steps = traj["step"][::stride]
-    goals = traj["goals"]
+    goals_raw = traj["goals"]
+    if goals_raw.ndim == 3:
+        goals_frames = goals_raw[::stride]
+    else:
+        goals_frames = None  # constant 2D goals
     n_repro = traj["reproducer_alive"][::stride]
     n_elim = traj["eliminator_alive"][::stride]
 
@@ -246,8 +258,9 @@ def render_animation(
         gridspec_kw={"width_ratios": [1, 1.4]},
     )
 
+    g0 = goals_frames[0] if goals_frames is not None else goals_raw
     im = ax_grid.imshow(
-        _display_grid(x[0], goals),
+        _display_grid(x[0], g0),
         cmap=_CMAP, norm=_NORM, interpolation="nearest",
     )
     ax_grid.set_xticks([])
@@ -265,7 +278,8 @@ def render_animation(
     cursor = ax_curve.axvline(steps[0], color="black", linewidth=0.8, alpha=0.6)
 
     def update(frame_idx: int):
-        im.set_data(_display_grid(x[frame_idx], goals))
+        g = goals_frames[frame_idx] if goals_frames is not None else goals_raw
+        im.set_data(_display_grid(x[frame_idx], g))
         title_grid.set_text(f"step {steps[frame_idx]}")
         cursor.set_xdata([steps[frame_idx]])
         return im, title_grid, cursor

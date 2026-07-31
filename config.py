@@ -37,12 +37,15 @@ class Config:
     #   False = original single-channel votes (indiscriminate)
     #   True  = dual votes with goal routing (version A)
     typed_votes: bool = True
-    # Placeholders for later steps (wired as they are implemented):
     # Step B: eliminators only pressure reproducer (prey) neighbours;
     # fellow eliminators are neutral in the loss (not +kill-all).
     predator_prey_loss: bool = False
-    goal_inheritance: bool = False     # Step C
-    goal_in_f: bool = False            # Step D
+    # Step C: on birth (dead→alive), adopt majority goal among pre-step
+    # alive Moore neighbours (tie → max-rho neighbour). Survivors/deaths keep
+    # goals; rho stays fixed. No parameter inheritance.
+    goal_inheritance: bool = False
+    # Step D: own goal into f input (not yet implemented).
+    goal_in_f: bool = False
 
     # ---- Survival rule weights ----
     # Logistic combination of:

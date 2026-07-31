@@ -42,6 +42,7 @@ def summarize_run(
       vote_R_help_kin, vote_R_harm_foe, vote_E_help_kin, vote_E_harm_foe
       same_goal_edge_frac  (optional)
       death_rate_same_edge, death_rate_cross_edge, death_rate_cross_minus_same
+      goal_frac_repro, alive_goal_frac_repro  (optional; Step C)
     """
     ra = np.asarray(series["reproducer_alive"], dtype=float)
     ea = np.asarray(series["eliminator_alive"], dtype=float)
@@ -50,6 +51,8 @@ def summarize_run(
     le = np.asarray(series["loss_e"], dtype=float)
     T = len(alive)
     total = ra + ea
+    # Density residual uses *initial* goal frac (goal_frac_repro arg): under C
+    # this residual should grow as type fractions leave the init labels.
     pred_ra = goal_frac_repro * total
 
     early_n = max(1, int(T * early_frac))
@@ -80,7 +83,8 @@ def summarize_run(
 
     out: dict[str, Any] = {
         "T": T,
-        "goal_frac_repro": float(goal_frac_repro),
+        "goal_frac_repro": float(goal_frac_repro),  # initial (all cells)
+        "goal_frac_repro_initial": float(goal_frac_repro),
         # Coupling
         "corr_ra_ea": _safe_corr(ra, ea),
         "corr_ra_density": _safe_corr(ra, pred_ra),
@@ -138,6 +142,36 @@ def summarize_run(
         out["late_death_rate_cross_edge"] = _nanmean(d_cross[late])
         out["late_death_rate_cross_minus_same"] = _nanmean(d_gap[late])
         out["early_death_rate_cross_minus_same"] = _nanmean(d_gap[early])
+
+    # Step C: time-varying goal composition.
+    # goal_frac_repro series = fraction of all cells with goal==REPRO (post-step).
+    # alive_goal_frac_repro = same among alive cells only.
+    if "goal_frac_repro" in series:
+        gfr = np.asarray(series["goal_frac_repro"], float)
+        out["goal_frac_repro_final"] = float(gfr[-1]) if len(gfr) else float("nan")
+        out["goal_frac_repro_drift"] = (
+            float(gfr[-1] - goal_frac_repro) if len(gfr) else float("nan")
+        )
+        out["mean_goal_frac_repro"] = _nanmean(gfr)
+    else:
+        out["goal_frac_repro_final"] = float(goal_frac_repro)
+        out["goal_frac_repro_drift"] = 0.0
+        out["mean_goal_frac_repro"] = float(goal_frac_repro)
+
+    if "alive_goal_frac_repro" in series:
+        agf = np.asarray(series["alive_goal_frac_repro"], float)
+        out["alive_goal_frac_repro_final"] = (
+            float(agf[-1]) if len(agf) and np.isfinite(agf[-1]) else float("nan")
+        )
+        if len(agf) > 1:
+            d = np.abs(np.diff(agf))
+            out["mean_abs_goal_frac_delta"] = _nanmean(d)
+        else:
+            out["mean_abs_goal_frac_delta"] = 0.0
+    else:
+        out["alive_goal_frac_repro_final"] = float("nan")
+        out["mean_abs_goal_frac_delta"] = float("nan")
+
     return out
 
 
@@ -158,6 +192,8 @@ TABLE_COLUMNS: list[tuple[str, str, str]] = [
     ("mean_abs_residual_ra", "|ra residual|", ".2f"),
     ("ratio_ra_ea_early", "ra/ea early", ".2f"),
     ("ratio_ra_ea_late", "ra/ea late", ".2f"),
+    ("goal_frac_repro_drift", "g_frac drift", ".3f"),
+    ("mean_abs_goal_frac_delta", "mean|Δg_alive|", ".4f"),
     ("corr_loss_r_e", "corr(Lr,Le)", ".3f"),
     ("late_R_vote_disc", "R vote disc late", ".3f"),
     ("late_E_vote_disc", "E vote disc late", ".3f"),

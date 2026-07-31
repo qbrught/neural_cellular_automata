@@ -90,6 +90,12 @@ def test_trajectory_files_exist_and_load():
     traj = np.load(out / "trajectory.npz")
     assert traj["x"].shape[0] == cfg.n_steps + 1
     assert traj["x"].shape[1:] == (cfg.N, cfg.N)
+    # Goals are per-step (T, N, N); legacy 2D is also acceptable to loaders.
+    assert traj["goals"].ndim in (2, 3)
+    if traj["goals"].ndim == 3:
+        assert traj["goals"].shape == (cfg.n_steps + 1, cfg.N, cfg.N)
+    else:
+        assert traj["goals"].shape == (cfg.N, cfg.N)
     print("test_trajectory_files_exist_and_load OK")
 
 

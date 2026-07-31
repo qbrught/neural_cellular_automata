@@ -146,7 +146,11 @@ def run_experiment(
 
     grid = build_grid(cfg)
     state, params, u = grid.state, grid.params, grid.u
-    goal_frac = float((state.goals == GOAL_REPRODUCE).float().mean().item())
+    # Initial goal fraction over all cells (latent map); used for density residual
+    # and as the baseline for goal_frac drift under Step C.
+    goal_frac_initial = float(
+        (state.goals == GOAL_REPRODUCE).float().mean().item()
+    )
 
     buckets: dict[str, list] = {
         "alive": [],
@@ -167,6 +171,9 @@ def run_experiment(
         "death_rate_cross_minus_same": [],
         "n_same_edges": [],
         "n_cross_edges": [],
+        # Step C: goal composition (all cells + among alive)
+        "goal_frac_repro": [],
+        "alive_goal_frac_repro": [],
     }
 
     n = int(cfg.n_steps)
@@ -205,24 +212,39 @@ def run_experiment(
         for k, v in death.items():
             buckets[k].append(v)
 
+        # Goal fractions from post-step state so inheritance this step is visible.
+        g_next = step_out.next_state.goals
+        x_next = step_out.next_state.x
+        buckets["goal_frac_repro"].append(
+            float((g_next == GOAL_REPRODUCE).float().mean().item())
+        )
+        alive_next = x_next > 0
+        if alive_next.any():
+            buckets["alive_goal_frac_repro"].append(
+                float((g_next[alive_next] == GOAL_REPRODUCE).float().mean().item())
+            )
+        else:
+            buckets["alive_goal_frac_repro"].append(float("nan"))
+
         if log_every and (t % log_every == 0 or t == n - 1):
             print(
                 f"  [{version.id} seed={seed}] t={t:4d} "
                 f"alive={buckets['alive'][-1]:3d} "
                 f"ra={buckets['reproducer_alive'][-1]:3d} "
-                f"ea={buckets['eliminator_alive'][-1]:3d}"
+                f"ea={buckets['eliminator_alive'][-1]:3d} "
+                f"g_repro={buckets['goal_frac_repro'][-1]:.3f}"
             )
 
         state = step_out.next_state
 
     series = {k: np.asarray(v, dtype=float) for k, v in buckets.items()}
-    summary = summarize_run(series, goal_frac_repro=goal_frac)
+    summary = summarize_run(series, goal_frac_repro=goal_frac_initial)
 
     result = {
         "version_id": version.id,
         "version_title": version.title,
         "seed": seed,
-        "goal_frac_repro": goal_frac,
+        "goal_frac_repro": goal_frac_initial,
         "config": cfg.to_dict(),
         "series": series,
         "summary": summary,
@@ -242,7 +264,7 @@ def run_experiment(
                     "version_description": version.description,
                     "hypothesis": version.hypothesis,
                     "seed": seed,
-                    "goal_frac_repro": goal_frac,
+                    "goal_frac_repro": goal_frac_initial,
                     "config": cfg.to_dict(),
                 },
                 f,
