@@ -43,30 +43,51 @@ def write_summary_csv(results: list[dict[str, Any]], path: Path) -> Path:
     if not results:
         path.write_text("")
         return path
-    fieldnames = ["version", "seed"] + list(results[0]["summary"].keys())
+    has_config = any(r.get("config_id") for r in results)
+    base = (["config_id", "config_title"] if has_config else []) + ["version", "seed"]
+    fieldnames = base + list(results[0]["summary"].keys())
     with path.open("w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()
         for r in results:
-            row = {"version": r["version_id"], "seed": r["seed"], **r["summary"]}
+            row = {
+                "version": r["version_id"],
+                "seed": r["seed"],
+                **r["summary"],
+            }
+            if has_config:
+                row["config_id"] = r.get("config_id", "")
+                row["config_title"] = r.get("config_title", "")
             w.writerow(row)
     return path
 
 
-def markdown_comparison_table(results: list[dict[str, Any]]) -> str:
-    """One row per version (mean over seeds) of key paper metrics."""
-    by_v: dict[str, list[dict]] = {}
-    for r in results:
-        by_v.setdefault(r["version_id"], []).append(r["summary"])
+def markdown_comparison_table(
+    results: list[dict[str, Any]],
+    *,
+    include_config: bool = False,
+) -> str:
+    """One row per version (mean over seeds) of key paper metrics.
 
-    headers = ["version", "n_seeds"] + [h for _, h, _ in TABLE_COLUMNS]
+    If include_config and results carry config_id, rows are (config, version).
+    """
+    # Group key: (config_id or "", version_id)
+    by_key: dict[tuple[str, str], list[dict]] = {}
+    for r in results:
+        cid = str(r.get("config_id") or "") if include_config else ""
+        by_key.setdefault((cid, r["version_id"]), []).append(r["summary"])
+
+    headers = (
+        (["config", "version", "n_seeds"] if include_config else ["version", "n_seeds"])
+        + [h for _, h, _ in TABLE_COLUMNS]
+    )
     lines = [
         "| " + " | ".join(headers) + " |",
         "| " + " | ".join(["---"] * len(headers)) + " |",
     ]
-    for vid in sorted(by_v):
-        rows = by_v[vid]
-        cells = [vid, str(len(rows))]
+    for (cid, vid) in sorted(by_key):
+        rows = by_key[(cid, vid)]
+        cells = ([cid, vid, str(len(rows))] if include_config else [vid, str(len(rows))])
         for key, _h, fmt in TABLE_COLUMNS:
             if fmt == "s":
                 # extinct step: show rate

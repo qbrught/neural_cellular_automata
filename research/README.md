@@ -30,9 +30,22 @@ python -m research.suite run --versions original,A --n-steps 400 --seeds 1096812
 
 # Smoke test
 python -m research.suite run --quick
+
+# Multi-config: A/B/C on selected discoveries (titles + one-liners from catalog)
+python -m research.suite run --versions A,B,C \
+  --discoveries disc_0001,disc_0003,disc_0005 \
+  --n-steps 400 --seeds 1096812628,42,7 \
+  --name suite_ABC_discoveries
+
+# Same thing with explicit paths
+python -m research.suite run --versions A,B,C \
+  --configs discoveries/disc_0001,discoveries/disc_0003
+
+# All catalog discoveries
+python -m research.suite run --versions A,B,C --discoveries all --n-steps 400
 ```
 
-Results land in:
+**Single-config** results land in:
 
 ```
 research_results/<run_name>/
@@ -46,7 +59,24 @@ research_results/<run_name>/
     A/seed_*/
 ```
 
-Open `REPORT.md` after a run.
+**Multi-config** results land in:
+
+```
+research_results/<run_name>/
+  INDEX.md               ← start here (links + cross-config table)
+  REPORT.md              ← short pointer to INDEX + per-config list
+  summary_all.csv        ← all (config, version, seed) rows
+  manifest.json
+  configs/
+    disc_0001/
+      REPORT.md          ← titled "A,B,C on disc_0001" + catalog one-liner
+      comparison/        ← charts titled "Config disc_0001: ..."
+      versions/A|B|C/seed_*/
+    disc_0003/
+      ...
+```
+
+Open `INDEX.md` (multi) or `REPORT.md` (single) after a run.
 
 ## What is measured
 
@@ -101,9 +131,10 @@ No chart/report code changes needed — new versions plug into the same suite.
 
 ## Fair comparison design
 
-- Shared **base config**: `research/configs/benchmark.json` (historically long-lived hyperparams).
-- Shared **seeds** across versions.
-- Only **version flags** differ between arms.
+- Shared **base config** per arm: default `research/configs/benchmark.json`, or any discovery / JSON via `--config` / `--configs` / `--discoveries`.
+- Shared **seeds** across versions (and across configs in a multi-config suite).
+- Only **version flags** differ between arms; survival weights / η / init density come from the base config.
+- Catalog one-liners (from `discoveries/catalog.jsonl`) are attached as config titles in reports and chart headings.
 - `typed_votes=False` keeps the dual ψ heads for parameter-count parity but routes only the help head to all receivers (`V_foe=0`) — isolating the *routing* mechanism of step A.
 
 ## Relation to `experiments/`

@@ -36,9 +36,13 @@ def plot_run_panel(result: dict[str, Any], out_path: Path) -> Path:
     t = np.arange(len(s["alive"]))
     vid = result["version_id"]
     seed = result["seed"]
+    cfg_id = result.get("config_id")
+    title = f"Version {vid} · seed {seed}"
+    if cfg_id:
+        title = f"Config `{cfg_id}` · {title}"
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 7))
-    fig.suptitle(f"Version {vid} · seed {seed}", fontsize=12, fontweight="bold")
+    fig.suptitle(title, fontsize=12, fontweight="bold")
 
     ax = axes[0, 0]
     ax.plot(t, s["reproducer_alive"], label="repro", color="#2ca02c", lw=1.4)
@@ -104,6 +108,7 @@ def plot_version_overlay(
     ylabel: str,
     title: str,
     series_fn=None,
+    title_prefix: str | None = None,
 ) -> Path:
     """Overlay a metric across versions (mean over seeds if multiple).
 
@@ -133,7 +138,8 @@ def plot_version_overlay(
 
     ax.set_xlabel("step")
     ax.set_ylabel(ylabel)
-    ax.set_title(title)
+    full_title = f"{title_prefix}: {title}" if title_prefix else title
+    ax.set_title(full_title)
     ax.legend()
     fig.tight_layout()
     out_path = Path(out_path)
@@ -146,135 +152,80 @@ def plot_version_overlay(
 def plot_comparison_dashboard(
     results: list[dict[str, Any]],
     out_dir: Path,
+    *,
+    title_prefix: str | None = None,
 ) -> dict[str, Path]:
-    """Write the standard comparison chart set. Returns path map."""
+    """Write the standard comparison chart set. Returns path map.
+
+    title_prefix: e.g. config id ``disc_0001`` prepended to every chart title.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     paths: dict[str, Path] = {}
+    # Infer prefix from results if not given
+    if title_prefix is None:
+        cids = {r.get("config_id") for r in results if r.get("config_id")}
+        if len(cids) == 1:
+            title_prefix = f"Config {next(iter(cids))}"
 
-    paths["alive_total"] = plot_version_overlay(
-        results,
-        out_dir / "01_alive_total.png",
-        metric_key="alive",
-        ylabel="total alive",
-        title="Total population over time",
+    def _ov(name, fname, metric_key, ylabel, title, series_fn=None):
+        paths[name] = plot_version_overlay(
+            results,
+            out_dir / fname,
+            metric_key=metric_key,
+            ylabel=ylabel,
+            title=title,
+            series_fn=series_fn,
+            title_prefix=title_prefix,
+        )
+
+    _ov("alive_total", "01_alive_total.png", "alive", "total alive",
+        "Total population over time")
+    _ov("alive_repro", "02_alive_repro.png", "reproducer_alive", "reproducer alive",
+        "Reproducer population")
+    _ov("alive_elim", "03_alive_elim.png", "eliminator_alive", "eliminator alive",
+        "Eliminator population")
+    _ov(
+        "ratio", "04_type_ratio.png", "alive", "ra / (ea+ε)",
+        "Type ratio (repro / elim)",
+        series_fn=lambda s: s["reproducer_alive"] / (s["eliminator_alive"] + 1e-9),
     )
-    paths["alive_repro"] = plot_version_overlay(
-        results,
-        out_dir / "02_alive_repro.png",
-        metric_key="reproducer_alive",
-        ylabel="reproducer alive",
-        title="Reproducer population",
-    )
-    paths["alive_elim"] = plot_version_overlay(
-        results,
-        out_dir / "03_alive_elim.png",
-        metric_key="eliminator_alive",
-        ylabel="eliminator alive",
-        title="Eliminator population",
-    )
-    paths["ratio"] = plot_version_overlay(
-        results,
-        out_dir / "04_type_ratio.png",
-        metric_key="alive",
-        ylabel="ra / (ea+ε)",
-        title="Type ratio (repro / elim)",
-        series_fn=lambda s: s["reproducer_alive"]
-        / (s["eliminator_alive"] + 1e-9),
-    )
-    paths["loss_r"] = plot_version_overlay(
-        results,
-        out_dir / "05_loss_repro.png",
-        metric_key="loss_r",
-        ylabel="loss",
-        title="Reproducer mean loss",
-    )
-    paths["loss_e"] = plot_version_overlay(
-        results,
-        out_dir / "06_loss_elim.png",
-        metric_key="loss_e",
-        ylabel="loss",
-        title="Eliminator mean loss",
-    )
-    paths["vote_R"] = plot_version_overlay(
-        results,
-        out_dir / "07_vote_disc_repro.png",
-        metric_key="vote_R_help_kin",
-        ylabel="help_kin − harm_foe",
-        title="Reproducer vote specialization",
+    _ov("loss_r", "05_loss_repro.png", "loss_r", "loss", "Reproducer mean loss")
+    _ov("loss_e", "06_loss_elim.png", "loss_e", "loss", "Eliminator mean loss")
+    _ov(
+        "vote_R", "07_vote_disc_repro.png", "vote_R_help_kin",
+        "help_kin − harm_foe", "Reproducer vote specialization",
         series_fn=lambda s: s["vote_R_help_kin"] - s["vote_R_harm_foe"],
     )
-    paths["vote_E"] = plot_version_overlay(
-        results,
-        out_dir / "08_vote_disc_elim.png",
-        metric_key="vote_E_harm_foe",
-        ylabel="harm_foe − help_kin",
-        title="Eliminator vote specialization",
+    _ov(
+        "vote_E", "08_vote_disc_elim.png", "vote_E_harm_foe",
+        "harm_foe − help_kin", "Eliminator vote specialization",
         series_fn=lambda s: s["vote_E_harm_foe"] - s["vote_E_help_kin"],
     )
-    paths["V_kin"] = plot_version_overlay(
-        results,
-        out_dir / "09_V_kin.png",
-        metric_key="V_kin_mean",
-        ylabel="mean V_kin",
-        title="Kin vote channel (mean over grid)",
-    )
-    paths["V_foe"] = plot_version_overlay(
-        results,
-        out_dir / "10_V_foe.png",
-        metric_key="V_foe_mean",
-        ylabel="mean V_foe",
-        title="Foe vote channel (mean over grid)",
-    )
-    paths["segregation"] = plot_version_overlay(
-        results,
-        out_dir / "11_segregation.png",
-        metric_key="same_goal_edge_frac",
-        ylabel="same-goal edge frac",
-        title="Spatial segregation (alive–alive 4-edges)",
-    )
-    paths["death_same"] = plot_version_overlay(
-        results,
-        out_dir / "12_death_rate_same_edge.png",
-        metric_key="death_rate_same_edge",
-        ylabel="sender death rate",
-        title="Death rate on same-type directed edges",
-    )
-    paths["death_cross"] = plot_version_overlay(
-        results,
-        out_dir / "13_death_rate_cross_edge.png",
-        metric_key="death_rate_cross_edge",
-        ylabel="sender death rate",
-        title="Death rate on cross-type directed edges",
-    )
-    paths["death_gap"] = plot_version_overlay(
-        results,
-        out_dir / "14_death_rate_gap.png",
-        metric_key="death_rate_cross_minus_same",
-        ylabel="cross − same",
-        title="Typed death gap (cross − same; >0 ⇒ cross more lethal)",
-    )
+    _ov("V_kin", "09_V_kin.png", "V_kin_mean", "mean V_kin",
+        "Kin vote channel (mean over grid)")
+    _ov("V_foe", "10_V_foe.png", "V_foe_mean", "mean V_foe",
+        "Foe vote channel (mean over grid)")
+    _ov("segregation", "11_segregation.png", "same_goal_edge_frac",
+        "same-goal edge frac", "Spatial segregation (alive–alive 4-edges)")
+    _ov("death_same", "12_death_rate_same_edge.png", "death_rate_same_edge",
+        "sender death rate", "Death rate on same-type directed edges")
+    _ov("death_cross", "13_death_rate_cross_edge.png", "death_rate_cross_edge",
+        "sender death rate", "Death rate on cross-type directed edges")
+    _ov("death_gap", "14_death_rate_gap.png", "death_rate_cross_minus_same",
+        "cross − same", "Typed death gap (cross − same; >0 ⇒ cross more lethal)")
 
-    # Step C: goal fraction over time (all cells). Only meaningful when
-    # goal_inheritance is on; still plotted for all versions for comparison.
+    # Step C: goal fraction over time (all cells).
     has_goal_frac = any(
         "goal_frac_repro" in r.get("series", {}) for r in results
     )
     if has_goal_frac:
-        paths["goal_frac"] = plot_version_overlay(
-            results,
-            out_dir / "17_goal_frac_repro.png",
-            metric_key="goal_frac_repro",
-            ylabel="frac goal=REPRO (all cells)",
-            title="Goal composition over time (Step C colonization)",
-        )
-        paths["alive_goal_frac"] = plot_version_overlay(
-            results,
-            out_dir / "18_alive_goal_frac_repro.png",
-            metric_key="alive_goal_frac_repro",
-            ylabel="frac goal=REPRO (alive)",
-            title="Alive type fraction over time",
-        )
+        _ov("goal_frac", "17_goal_frac_repro.png", "goal_frac_repro",
+            "frac goal=REPRO (all cells)",
+            "Goal composition over time (Step C colonization)")
+        _ov("alive_goal_frac", "18_alive_goal_frac_repro.png",
+            "alive_goal_frac_repro", "frac goal=REPRO (alive)",
+            "Alive type fraction over time")
 
     # Scalar bar chart: corr(ra,ea) by version
     _style()
@@ -289,7 +240,10 @@ def plot_comparison_dashboard(
     ax.set_ylim(-1.05, 1.05)
     ax.axhline(0, color="k", lw=0.5)
     ax.set_ylabel("corr(repro_alive, elim_alive)")
-    ax.set_title("Alive-count coupling (lower = more type-specific dynamics)")
+    bar_title = "Alive-count coupling (lower = more type-specific dynamics)"
+    if title_prefix:
+        bar_title = f"{title_prefix}: {bar_title}"
+    ax.set_title(bar_title)
     fig.tight_layout()
     paths["coupling_bar"] = out_dir / "15_coupling_bar.png"
     fig.savefig(paths["coupling_bar"])
@@ -308,7 +262,10 @@ def plot_comparison_dashboard(
         ax.bar(vids, means, yerr=stds, color="#c44e52", alpha=0.85, capsize=4)
         ax.axhline(0, color="k", lw=0.5)
         ax.set_ylabel("late death gap (cross − same)")
-        ax.set_title("Cross-type lethality vs same-type (late window)")
+        gap_title = "Cross-type lethality vs same-type (late window)"
+        if title_prefix:
+            gap_title = f"{title_prefix}: {gap_title}"
+        ax.set_title(gap_title)
         fig.tight_layout()
         paths["death_gap_bar"] = out_dir / "16_death_gap_bar.png"
         fig.savefig(paths["death_gap_bar"])

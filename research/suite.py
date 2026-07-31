@@ -3,7 +3,9 @@
 Examples:
   python -m research.suite list
   python -m research.suite run --versions original,A --n-steps 400
-  python -m research.suite run --versions original,A --seeds 1096812628,42,7
+  python -m research.suite run --versions A,B,C --discoveries disc_0001,disc_0003,disc_0005
+  python -m research.suite run --versions A,B,C --configs discoveries/disc_0001,discoveries/disc_0004
+  python -m research.suite run --discoveries all --versions A,B,C --n-steps 400
   python -m research.suite run --quick   # fast smoke: 2 versions × 1 seed × 150 steps
 """
 
@@ -20,15 +22,18 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from config import Config
 from research.charts import plot_comparison_dashboard, plot_run_panel
-from research.report import write_report
+from research.config_sources import (
+    DEFAULT_BENCHMARK,
+    ConfigSource,
+    resolve_suite_configs,
+)
+from research.report import write_multi_config_index, write_report
 from research.runner import run_experiment
-from research.versions import VERSIONS, parse_version_list
+from research.versions import VERSIONS, VersionSpec, parse_version_list
 
 
 DEFAULT_SEEDS = [1096812628, 42, 7]
-DEFAULT_CONFIG = Path(__file__).parent / "configs" / "benchmark.json"
 
 
 def cmd_list(_: argparse.Namespace) -> None:
@@ -40,6 +45,91 @@ def cmd_list(_: argparse.Namespace) -> None:
         print()
 
 
+def _annotate_result(result: dict, source: ConfigSource) -> dict:
+    """Attach config metadata used by reports, CSV, and chart titles."""
+    result["config_id"] = source.id
+    result["config_title"] = source.title
+    result["config_description"] = source.description
+    result["config_path"] = str(source.path)
+    return result
+
+
+def _run_one_config(
+    source: ConfigSource,
+    versions: list[VersionSpec],
+    seeds: list[int],
+    n_steps: int,
+    *,
+    out_dir: Path,
+    log_every: int,
+    suite_name: str,
+) -> list[dict]:
+    """Run all versions × seeds for one base config; write per-config artifacts."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print()
+    print("=" * 72)
+    print(f"CONFIG  {source.id}")
+    if source.description:
+        print(f"        {source.description}")
+    print(f"        path={source.path}")
+    print(f"        versions={[v.id for v in versions]}  seeds={seeds}  steps={n_steps}")
+    print("=" * 72)
+
+    results: list[dict] = []
+    for version in versions:
+        for seed in seeds:
+            run_dir = out_dir / "versions" / version.id / f"seed_{seed}"
+            print(f"=== [{source.id}] {version.id} · seed={seed} ===")
+            t0 = time.time()
+            result = run_experiment(
+                version,
+                source.cfg,
+                seed,
+                n_steps=n_steps,
+                out_dir=run_dir,
+                log_every=log_every,
+            )
+            result = _annotate_result(result, source)
+            plot_run_panel(result, run_dir / "panel.png")
+            dt = time.time() - t0
+            s = result["summary"]
+            g_drift = s.get("goal_frac_repro_drift", float("nan"))
+            print(
+                f"  done in {dt:.1f}s  "
+                f"corr(ra,ea)={s['corr_ra_ea']:.3f}  "
+                f"ra/ea late={s['ratio_ra_ea_late']:.2f}  "
+                f"g_drift={g_drift:+.3f}  "
+                f"alive late={s['mean_alive_late']:.1f}"
+            )
+            results.append(result)
+
+    chart_dir = out_dir / "comparison"
+    chart_paths = plot_comparison_dashboard(
+        results,
+        chart_dir,
+        title_prefix=f"Config {source.id}",
+    )
+    chart_paths = {k: Path(p).resolve() for k, p in chart_paths.items()}
+
+    write_report(
+        results,
+        versions,
+        out_dir,
+        chart_paths=chart_paths,
+        base_config_note=str(source.path),
+        n_steps=int(n_steps),
+        seeds=seeds,
+        config_id=source.id,
+        config_title=source.title,
+        config_description=source.description,
+        config_path=str(source.path),
+        suite_name=suite_name,
+    )
+    return results
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     if args.quick:
         versions = parse_version_list("original,A")
@@ -48,65 +138,79 @@ def cmd_run(args: argparse.Namespace) -> None:
         print("Quick mode: original,A · 1 seed · 150 steps")
     else:
         versions = parse_version_list(args.versions)
-        seeds = [int(s) for s in args.seeds.split(",")] if args.seeds else list(DEFAULT_SEEDS)
+        seeds = (
+            [int(s) for s in args.seeds.split(",")]
+            if args.seeds
+            else list(DEFAULT_SEEDS)
+        )
         n_steps = args.n_steps
 
-    base = Config.load(args.config) if args.config else Config.load(DEFAULT_CONFIG)
+    sources = resolve_suite_configs(
+        config=args.config,
+        configs=args.configs,
+        discoveries=args.discoveries,
+    )
+
+    # Default step count: first config's n_steps, else 500
     if n_steps is None:
-        n_steps = base.n_steps or 500
+        n_steps = sources[0].cfg.n_steps or 500
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
-    run_name = args.name or f"suite_{stamp}"
+    if args.name:
+        run_name = args.name
+    elif len(sources) == 1:
+        run_name = f"suite_{sources[0].id}_{stamp}"
+    else:
+        run_name = f"suite_multi_{stamp}"
     out_root = Path(args.output_dir) / run_name
     out_root.mkdir(parents=True, exist_ok=True)
 
     print(f"Output → {out_root.resolve()}")
+    print(f"Suite:    {run_name}")
     print(f"Versions: {[v.id for v in versions]}")
-    print(f"Seeds: {seeds}")
-    print(f"Steps: {n_steps}")
-    print()
+    print(f"Seeds:    {seeds}")
+    print(f"Steps:    {n_steps}")
+    print(f"Configs:  {[s.id for s in sources]}")
+    for s in sources:
+        desc = f" — {s.description}" if s.description else ""
+        print(f"  · {s.id}{desc}")
+        print(f"    {s.path}")
 
-    results = []
-    for version in versions:
-        for seed in seeds:
-            run_dir = out_root / "versions" / version.id / f"seed_{seed}"
-            print(f"=== {version.id} · seed={seed} ===")
-            t0 = time.time()
-            result = run_experiment(
-                version,
-                base,
-                seed,
-                n_steps=n_steps,
-                out_dir=run_dir,
-                log_every=args.log_every,
-            )
-            plot_run_panel(result, run_dir / "panel.png")
-            dt = time.time() - t0
-            s = result["summary"]
-            print(
-                f"  done in {dt:.1f}s  "
-                f"corr(ra,ea)={s['corr_ra_ea']:.3f}  "
-                f"ra/ea late={s['ratio_ra_ea_late']:.2f}  "
-                f"R_disc late={s['late_R_vote_disc']:.3f}  "
-                f"alive late={s['mean_alive_late']:.1f}"
-            )
-            results.append(result)
+    all_results: list[dict] = []
+    config_summaries: list[dict] = []
 
-    # Comparison charts + report
-    chart_dir = out_root / "comparison"
-    chart_paths = plot_comparison_dashboard(results, chart_dir)
-    # Make paths absolute for report relativization
-    chart_paths = {k: Path(p).resolve() for k, p in chart_paths.items()}
-
-    report_path = write_report(
-        results,
-        versions,
-        out_root,
-        chart_paths=chart_paths,
-        base_config_note=str(args.config or DEFAULT_CONFIG),
-        n_steps=int(n_steps),
-        seeds=seeds,
-    )
+    multi = len(sources) > 1
+    for source in sources:
+        cfg_out = (
+            out_root / "configs" / source.id
+            if multi
+            else out_root
+        )
+        results = _run_one_config(
+            source,
+            versions,
+            seeds,
+            int(n_steps),
+            out_dir=cfg_out,
+            log_every=args.log_every,
+            suite_name=run_name,
+        )
+        all_results.extend(results)
+        rel_report = (
+            f"configs/{source.id}/REPORT.md"
+            if multi
+            else "REPORT.md"
+        )
+        config_summaries.append(
+            {
+                "config_id": source.id,
+                "config_title": source.title,
+                "config_description": source.description,
+                "config_path": str(source.path),
+                "rel_report": rel_report,
+                "n_results": len(results),
+            }
+        )
 
     # Machine-readable suite manifest
     manifest = {
@@ -114,24 +218,50 @@ def cmd_run(args: argparse.Namespace) -> None:
         "n_steps": n_steps,
         "seeds": seeds,
         "versions": [v.id for v in versions],
-        "base_config": (args.config or str(DEFAULT_CONFIG)),
+        "configs": [
+            {
+                "id": s.id,
+                "path": str(s.path),
+                "title": s.title,
+                "description": s.description,
+            }
+            for s in sources
+        ],
         "results": [
             {
+                "config_id": r.get("config_id"),
                 "version": r["version_id"],
                 "seed": r["seed"],
                 "summary": r["summary"],
             }
-            for r in results
+            for r in all_results
         ],
     }
     with (out_root / "manifest.json").open("w") as f:
         json.dump(manifest, f, indent=2)
 
-    print()
-    print(f"Report: {report_path}")
-    print(f"Notes:  {out_root / 'NOTES.md'}")
-    print(f"CSV:    {out_root / 'summary.csv'}")
-    print(f"Charts: {chart_dir}")
+    if multi:
+        index_path = write_multi_config_index(
+            out_root,
+            suite_name=run_name,
+            versions=versions,
+            seeds=seeds,
+            n_steps=int(n_steps),
+            config_summaries=config_summaries,
+            all_results=all_results,
+        )
+        print()
+        print(f"Multi-config INDEX: {index_path}")
+        print(f"Top REPORT:         {out_root / 'REPORT.md'}")
+        print(f"Combined CSV:       {out_root / 'summary_all.csv'}")
+        for cs in config_summaries:
+            print(f"  · {cs['config_id']}: {out_root / cs['rel_report']}")
+    else:
+        print()
+        print(f"Report: {out_root / 'REPORT.md'}")
+        print(f"Notes:  {out_root / 'NOTES.md'}")
+        print(f"CSV:    {out_root / 'summary.csv'}")
+        print(f"Charts: {out_root / 'comparison'}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -160,7 +290,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--config",
         type=Path,
         default=None,
-        help=f"Base Config JSON (default: {DEFAULT_CONFIG})",
+        help=f"Single base Config JSON (default: {DEFAULT_BENCHMARK})",
+    )
+    sp.add_argument(
+        "--configs",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated config paths (JSON files or dirs with config.json). "
+            "Example: discoveries/disc_0001,discoveries/disc_0003"
+        ),
+    )
+    sp.add_argument(
+        "--discoveries",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated discovery ids under discoveries/, or 'all'. "
+            "Example: disc_0001,disc_0003,disc_0005  or  1,3,5  or  all"
+        ),
     )
     sp.add_argument(
         "--output-dir",
