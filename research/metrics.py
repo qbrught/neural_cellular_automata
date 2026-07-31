@@ -27,6 +27,13 @@ def _nanmean(x: np.ndarray) -> float:
     return float(np.nanmean(x))
 
 
+def _safe_ratio(num: float, den: float, *, eps: float = 1e-9) -> float:
+    """ra/ea style ratio; NaN if denominator is essentially zero (type extinct)."""
+    if not np.isfinite(num) or not np.isfinite(den) or abs(den) < eps:
+        return float("nan")
+    return float(num / den)
+
+
 def summarize_run(
     series: dict[str, np.ndarray],
     *,
@@ -94,12 +101,8 @@ def summarize_run(
         "mean_alive": float(alive.mean()),
         "mean_ra": float(ra.mean()),
         "mean_ea": float(ea.mean()),
-        "ratio_ra_ea_early": float(
-            ra[early].mean() / (ea[early].mean() + 1e-9)
-        ),
-        "ratio_ra_ea_late": float(
-            ra[late].mean() / (ea[late].mean() + 1e-9)
-        ),
+        "ratio_ra_ea_early": _safe_ratio(float(ra[early].mean()), float(ea[early].mean())),
+        "ratio_ra_ea_late": _safe_ratio(float(ra[late].mean()), float(ea[late].mean())),
         "mean_alive_early": float(alive[early].mean()),
         "mean_alive_late": float(alive[late].mean()),
         "extinct_step": extinct_step,
