@@ -85,6 +85,20 @@ def config_knobs(cfg: Config) -> dict[str, float]:
     }
 
 
+def apply_version_flags(cfg: Config, version: str | None) -> Config:
+    """Force paper-version flags onto a sampled config (A/B/C/original).
+
+    Weights and init knobs are left unchanged; only mechanism flags are set.
+    """
+    if not version:
+        return cfg
+    key = version.strip()
+    # Local import avoids hard coupling at module load for unit tests.
+    from research.versions import get_version
+
+    return get_version(key).apply(cfg)
+
+
 def sample_config(
     rng: random.Random,
     *,
@@ -92,10 +106,12 @@ def sample_config(
     n_steps: int = 1000,
     N: int = 20,
     device: str = "cpu",
+    version: str | None = None,
 ) -> Config:
     """Draw a discovery Config. If ``base`` is set, mutate it instead of pure random."""
     if base is not None:
-        return _mutate_config(rng, base, n_steps=n_steps, N=N, device=device)
+        cfg = _mutate_config(rng, base, n_steps=n_steps, N=N, device=device)
+        return apply_version_flags(cfg, version)
 
     cfg = Config(
         N=N,
@@ -123,7 +139,7 @@ def sample_config(
     )
     cfg.learn = True
     cfg.__post_init__()
-    return cfg
+    return apply_version_flags(cfg, version)
 
 
 def apply_proposal(
@@ -135,6 +151,7 @@ def apply_proposal(
     N: int,
     device: str,
     jitter: float = 0.0,
+    version: str | None = None,
 ) -> Config | None:
     """Build next Config from a partial absolute proposal on top of ``base``.
 
@@ -179,7 +196,7 @@ def apply_proposal(
         cfg.__post_init__()
     except ValueError:
         return None
-    return cfg
+    return apply_version_flags(cfg, version)
 
 
 def heuristic_next_config(
@@ -190,6 +207,7 @@ def heuristic_next_config(
     n_steps: int,
     N: int,
     device: str,
+    version: str | None = None,
 ) -> Config:
     """Cheap non-VLM steering for dry-run / VLM failure (small directed steps)."""
     prop: dict[str, float] = {}
@@ -225,10 +243,13 @@ def heuristic_next_config(
             prop[k] = getattr(base, k) + rng.gauss(0.0, 0.08 * (hi - lo))
 
     cfg = apply_proposal(
-        base, prop, rng, n_steps=n_steps, N=N, device=device, jitter=0.0
+        base, prop, rng, n_steps=n_steps, N=N, device=device, jitter=0.0,
+        version=version,
     )
     if cfg is None:
-        return sample_config(rng, base=base, n_steps=n_steps, N=N, device=device)
+        return sample_config(
+            rng, base=base, n_steps=n_steps, N=N, device=device, version=version,
+        )
     return cfg
 
 

@@ -45,13 +45,28 @@ class CatalogEntry:
         )
 
 
-_DISC_ID_RE = re.compile(r"^disc_(\d+)$")
+# Default: disc_0001. Versioned: disc_C_0001 (id_prefix="disc_C_").
+def _id_pattern(id_prefix: str) -> re.Pattern[str]:
+    """Match ids produced by this catalog: ``{prefix}{dddd}``."""
+    # Escape prefix for regex; require trailing digits only.
+    return re.compile(rf"^{re.escape(id_prefix)}(\d+)$")
 
 
 class Catalog:
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        id_prefix: str = "disc_",
+        catalog_title: str = "NCSA Discovery Catalog",
+        version_tag: str | None = None,
+    ) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        self.id_prefix = id_prefix if id_prefix.endswith("_") else f"{id_prefix}_"
+        self.catalog_title = catalog_title
+        self.version_tag = version_tag  # e.g. "C" — stored on entries via judge meta
+        self._id_re = _id_pattern(self.id_prefix)
         self.jsonl_path = self.root / "catalog.jsonl"
         self.md_path = self.root / "catalog.md"
         self.entries: list[CatalogEntry] = []
@@ -70,7 +85,7 @@ class Catalog:
         self._reconcile_orphans()
 
     def _disc_number(self, disc_id: str) -> int | None:
-        m = _DISC_ID_RE.match(disc_id)
+        m = self._id_re.match(disc_id)
         return int(m.group(1)) if m else None
 
     def _max_disc_number(self) -> int:
@@ -134,7 +149,7 @@ class Catalog:
         return [f"{e.id}: {e.one_liner}" for e in self.entries]
 
     def next_id(self) -> str:
-        return f"disc_{self._max_disc_number() + 1:04d}"
+        return f"{self.id_prefix}{self._max_disc_number() + 1:04d}"
 
     def get_entry(self, disc_id: str) -> CatalogEntry | None:
         for e in self.entries:
@@ -183,8 +198,16 @@ class Catalog:
 
     def write_md(self) -> None:
         lines = [
-            "# NCSA Discovery Catalog",
+            f"# {self.catalog_title}",
             "",
+        ]
+        if self.version_tag:
+            lines.append(
+                f"**Paper version:** `{self.version_tag}` "
+                f"(ids use prefix `{self.id_prefix}`)."
+            )
+            lines.append("")
+        lines += [
             f"Total discoveries: **{self.count}**",
             "",
             "| ID | One-liner | Config |",
