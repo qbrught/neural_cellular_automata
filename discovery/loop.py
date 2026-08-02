@@ -54,6 +54,8 @@ class LoopConfig:
     guided: bool = True
     explore_prob: float = 0.15  # chance to ignore guidance and pure-random
     history_len: int = 6
+    # Paper version flags forced on every trial (e.g. "C" → A+B+goal_inheritance).
+    version: str | None = None
 
 
 @dataclass
@@ -88,12 +90,25 @@ def _should_stop(cfg: LoopConfig, stats: LoopStats, catalog: Catalog) -> str | N
     return None
 
 
+def _label_one_liner(one_liner: str, version: str | None) -> str:
+    """Prefix caption so catalog entries are obviously version-specific."""
+    text = (one_liner or "").strip()
+    if not version:
+        return text
+    tag = f"[Step {version}]"
+    if text.startswith(tag):
+        return text
+    return f"{tag} {text}" if text else tag
+
+
 def _promote_trial(
     trial_dir: Path,
     dest: Path,
     result: JudgeResult,
     *,
     cycle: int,
+    version: str | None = None,
+    labeled_one_liner: str | None = None,
 ) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     for name in ("config.json", "summary.png", "trajectory.npz", "params_final.pt"):
@@ -101,21 +116,73 @@ def _promote_trial(
         if src.exists():
             shutil.copy2(src, dest / name)
 
+    caption = labeled_one_liner or _label_one_liner(result.one_liner, version)
     note = dest / "note.txt"
-    note_body = result.one_liner
+    note_body = caption
     if result.analysis:
-        note_body = f"{result.one_liner}\n\n{result.analysis}\n"
-    note.write_text(note_body if note_body.endswith("\n") else note_body + "\n",
-                    encoding="utf-8")
+        note_body = f"{caption}\n\n{result.analysis}\n"
+    flags_line = ""
+    if version:
+        try:
+            from research.versions import get_version
+
+            spec = get_version(version)
+            flags_line = (
+                f"version={version}  "
+                f"typed_votes={spec.typed_votes}  "
+                f"predator_prey_loss={spec.predator_prey_loss}  "
+                f"goal_inheritance={spec.goal_inheritance}\n"
+            )
+        except Exception:  # noqa: BLE001
+            flags_line = f"version={version}\n"
+        note_body = f"{note_body.rstrip()}\n\n{flags_line}"
+    note.write_text(
+        note_body if note_body.endswith("\n") else note_body + "\n",
+        encoding="utf-8",
+    )
+
+    # Explicit VERSION.txt so the folder is obvious at a glance.
+    if version:
+        try:
+            from research.versions import get_version
+
+            spec = get_version(version)
+            ver_body = f"version={version}\n{spec.flag_summary()}"
+        except Exception:  # noqa: BLE001
+            ver_body = f"version={version}\n"
+        (dest / "VERSION.txt").write_text(ver_body, encoding="utf-8")
+
+    flag_meta: dict[str, bool | None] = {
+        "typed_votes": None,
+        "predator_prey_loss": None,
+        "goal_inheritance": None,
+        "goal_in_f": None,
+    }
+    if version:
+        try:
+            from research.versions import get_version
+
+            spec = get_version(version)
+            flag_meta = {
+                "typed_votes": spec.typed_votes,
+                "predator_prey_loss": spec.predator_prey_loss,
+                "goal_inheritance": spec.goal_inheritance,
+                "goal_in_f": spec.goal_in_f,
+            }
+        except Exception:  # noqa: BLE001
+            pass
 
     meta = {
         "cycle": cycle,
-        "one_liner": result.one_liner,
+        "version": version,
+        "one_liner": caption,
+        "one_liner_raw": result.one_liner,
         "analysis": result.analysis,
         "strategy": result.strategy,
         "rationale": result.rationale,
         "next_config": result.next_config,
         "judge": result.to_dict(),
+        "flags": flag_meta,
     }
     (dest / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
@@ -127,18 +194,24 @@ def _save_discovery(
     result: JudgeResult,
     *,
     cycle: int,
+    version: str | None = None,
 ) -> str:
     """Promote trial artifacts and append to the catalog immediately."""
     disc_id = catalog.next_id()
     dest = root / disc_id
     if dest.exists():
         shutil.rmtree(dest)
-    _promote_trial(trial_dir, dest, result, cycle=cycle)
+    labeled = _label_one_liner(result.one_liner, version)
+    _promote_trial(
+        trial_dir, dest, result, cycle=cycle, version=version, labeled_one_liner=labeled,
+    )
+    judge = result.to_dict()
+    judge["version"] = version
     catalog.append(
         disc_id,
-        result.one_liner,
+        labeled,
         cycle=cycle,
-        judge=result.to_dict(),
+        judge=judge,
     )
     return disc_id
 
@@ -181,6 +254,7 @@ def _random_or_mutate(
         n_steps=loop_cfg.n_steps,
         N=loop_cfg.N,
         device=loop_cfg.device,
+        version=loop_cfg.version,
     )
 
 
@@ -206,13 +280,30 @@ def _choose_config(
     return _random_or_mutate(rng, catalog, loop_cfg), "random"
 
 
+def _catalog_for_version(root: Path, version: str | None) -> Catalog:
+    """Separate id prefix + title when searching a paper version (esp. C)."""
+    if version:
+        from research.versions import get_version
+
+        spec = get_version(version)
+        # Canonical id (e.g. C_only), not uppercased — keeps disc_C_only_####
+        vid = spec.id
+        return Catalog(
+            root,
+            id_prefix=f"disc_{vid}_",
+            catalog_title=f"NCSA Discovery Catalog — {spec.title}",
+            version_tag=vid,
+        )
+    return Catalog(root)
+
+
 def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
     root = Path(loop_cfg.output_root)
     root.mkdir(parents=True, exist_ok=True)
     trials_root = root / "trials"
     trials_root.mkdir(parents=True, exist_ok=True)
 
-    catalog = Catalog(root)
+    catalog = _catalog_for_version(root, loop_cfg.version)
     sampler_seed = (
         loop_cfg.sampler_seed
         if loop_cfg.sampler_seed is not None
@@ -224,7 +315,33 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
     history: list[TrialRecord] = []
     pending_next: Config | None = None
 
+    # README so the root is clearly a version-labeled catalog.
+    if loop_cfg.version:
+        readme = root / "README.md"
+        if not readme.exists():
+            try:
+                from research.versions import get_version
+
+                spec = get_version(loop_cfg.version)
+                flag_block = spec.flag_summary()
+                title = spec.title
+            except Exception:  # noqa: BLE001
+                flag_block = ""
+                title = loop_cfg.version
+            readme.write_text(
+                f"# Discoveries for paper version **{loop_cfg.version}**\n\n"
+                f"**{title}**\n\n"
+                f"All trials force flags via `research.versions`:\n\n"
+                f"```\n{flag_block}```\n"
+                f"- Saved folders are named `disc_{loop_cfg.version}_####`\n"
+                f"- Each save has `VERSION.txt`, labeled one-liners, and "
+                f"matching flags in `config.json`\n",
+                encoding="utf-8",
+            )
+
     print(f"Discovery root: {root.resolve()}")
+    print(f"  version:              {loop_cfg.version or '(default flags / none)'}")
+    print(f"  id prefix:            {catalog.id_prefix}")
     print(f"  existing discoveries: {catalog.count}")
     print(f"  max_cycles={loop_cfg.max_cycles}  "
           f"target_discoveries={loop_cfg.target_discoveries}")
@@ -248,16 +365,34 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
         )
         pending_next = None  # consume proposal
         assert cfg.learn is True, "learning must be ON for discovery trials"
+        if loop_cfg.version:
+            from research.versions import get_version
+
+            spec = get_version(loop_cfg.version)
+            assert cfg.typed_votes == spec.typed_votes, (
+                f"version {loop_cfg.version}: expected typed_votes={spec.typed_votes}"
+            )
+            assert cfg.predator_prey_loss == spec.predator_prey_loss, (
+                f"version {loop_cfg.version}: expected "
+                f"predator_prey_loss={spec.predator_prey_loss}"
+            )
+            assert cfg.goal_inheritance == spec.goal_inheritance, (
+                f"version {loop_cfg.version}: expected "
+                f"goal_inheritance={spec.goal_inheritance}"
+            )
 
         trial_dir = trials_root / f"trial_{cycle:06d}"
         if trial_dir.exists():
             shutil.rmtree(trial_dir)
 
         knobs = config_knobs(cfg)
+        ver_tag = f" v={loop_cfg.version}" if loop_cfg.version else ""
         print(
-            f"[cycle {cycle}|{source}] seed={cfg.seed} "
+            f"[cycle {cycle}|{source}{ver_tag}] seed={cfg.seed} "
             f"w0={cfg.w0} w1={cfg.w1} w2={cfg.w2} w3={cfg.w3} "
-            f"w4h={cfg.w4_help} w4m={cfg.w4_harm} w5={cfg.w5} p0={cfg.init_alive_prob} eta={cfg.eta}"
+            f"w4h={cfg.w4_help} w4m={cfg.w4_harm} w5={cfg.w5} "
+            f"p0={cfg.init_alive_prob} eta={cfg.eta} "
+            f"inherit={cfg.goal_inheritance}"
         )
 
         run_trial(cfg, trial_dir, verbose=loop_cfg.verbose_sim)
@@ -286,6 +421,7 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
                     n_steps=loop_cfg.n_steps,
                     N=loop_cfg.N,
                     device=loop_cfg.device,
+                    version=loop_cfg.version,
                 )
                 print(f"[cycle {cycle}] heuristic next ready (dry-run guided)")
 
@@ -337,6 +473,7 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
             prefilter_reason=None if pf.passed else pf.reason,
             history_lines=hist_lines,
             model=loop_cfg.model,
+            version=loop_cfg.version,
         )
 
         if result.error:
@@ -355,6 +492,7 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
                     n_steps=loop_cfg.n_steps,
                     N=loop_cfg.N,
                     device=loop_cfg.device,
+                    version=loop_cfg.version,
                 )
                 print(f"[cycle {cycle}] fallback heuristic next (VLM error)")
             history.append(
@@ -386,6 +524,7 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
                 N=loop_cfg.N,
                 device=loop_cfg.device,
                 jitter=0.02,
+                version=loop_cfg.version,
             )
             if proposed is None:
                 proposed = heuristic_next_config(
@@ -398,6 +537,7 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
                     n_steps=loop_cfg.n_steps,
                     N=loop_cfg.N,
                     device=loop_cfg.device,
+                    version=loop_cfg.version,
                 )
                 print(f"[cycle {cycle}] VLM next_config missing/invalid → heuristic")
             else:
@@ -412,7 +552,8 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
         # Only save when prefilter passed AND VLM says worth_saving.
         if pf.passed and result.worth_saving:
             disc_id = _save_discovery(
-                catalog, root, trial_dir, result, cycle=cycle
+                catalog, root, trial_dir, result,
+                cycle=cycle, version=loop_cfg.version,
             )
             stats.discoveries = catalog.count
             print(

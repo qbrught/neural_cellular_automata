@@ -8,7 +8,8 @@ Roadmap (matches the planned A→D path):
   original  — single indiscriminate vote channel
   A         — typed help/harm votes routed by kin/foe   [implemented]
   B         — predator–prey losses                       [implemented]
-  C         — goal inheritance / colonization            [implemented]
+  C_only    — goal inheritance alone (no A/B)            [implemented]
+  C         — goal inheritance on top of A+B             [implemented]
   D         — own goal into f                            [flag reserved]
 """
 
@@ -50,6 +51,15 @@ class VersionSpec:
             predator_prey_loss=self.predator_prey_loss,
             goal_inheritance=self.goal_inheritance,
             goal_in_f=self.goal_in_f,
+        )
+
+    def flag_summary(self) -> str:
+        """Short human-readable flag dump for VERSION.txt / notes."""
+        return (
+            f"typed_votes={self.typed_votes}\n"
+            f"predator_prey_loss={self.predator_prey_loss}\n"
+            f"goal_inheritance={self.goal_inheritance}\n"
+            f"goal_in_f={self.goal_in_f}\n"
         )
 
 
@@ -100,13 +110,32 @@ VERSIONS: dict[str, VersionSpec] = {
             "for E improve vs A; less self-destructive elim pressure."
         ),
     ),
+    "C_only": VersionSpec(
+        id="C_only",
+        title="Step C only — goal inheritance (isolated)",
+        description=(
+            "Goal inheritance alone: on birth, cells adopt majority pre-step "
+            "alive-neighbour goals. Votes stay original (indiscriminate); "
+            "loss stays pre-B (eliminators pressure all neighbours). "
+            "Use this to measure colonization without A/B confounders."
+        ),
+        typed_votes=False,
+        predator_prey_loss=False,
+        goal_inheritance=True,
+        implemented=True,
+        hypothesis=(
+            "Type fractions become dynamical via colonization on original "
+            "physics; compare to original (no inherit) and to full C (A+B+inherit)."
+        ),
+    ),
     "C": VersionSpec(
         id="C",
-        title="Step C — goal inheritance",
+        title="Step C — goal inheritance on A+B",
         description=(
             "On birth (dead→alive), a cell adopts the majority goal among "
             "pre-step alive Moore neighbours (tie → max-rho neighbour). "
-            "Survivors and pure deaths keep goals; rho stays fixed. Builds on A+B."
+            "Survivors and pure deaths keep goals; rho stays fixed. "
+            "Full stack: typed votes (A) + predator–prey loss (B) + inheritance."
         ),
         typed_votes=True,
         predator_prey_loss=True,
@@ -136,9 +165,18 @@ VERSIONS: dict[str, VersionSpec] = {
     ),
 }
 
+# Aliases for CLI convenience.
+_ALIASES: dict[str, str] = {
+    "c_only": "C_only",
+    "C-only": "C_only",
+    "inheritance": "C_only",
+    "inherit_only": "C_only",
+}
+
 
 def get_version(version_id: str) -> VersionSpec:
     key = version_id.strip()
+    key = _ALIASES.get(key, key)
     if key not in VERSIONS:
         known = ", ".join(VERSIONS)
         raise KeyError(f"Unknown version {version_id!r}. Known: {known}")

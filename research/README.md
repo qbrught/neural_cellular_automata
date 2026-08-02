@@ -9,7 +9,8 @@ Versions form an ablation path:
 | `original` | Indiscriminate single vote channel | implemented |
 | `A` | Typed help/harm votes (kin/foe routing) | implemented |
 | `B` | Predator–prey loss (on top of A) | implemented |
-| `C` | Goal inheritance / colonization | implemented |
+| `C_only` | Goal inheritance **only** (no A/B) | implemented |
+| `C` | Goal inheritance on A+B (full stack) | implemented |
 | `D` | Goal-conditioned local update `f` | planned |
 
 Every suite run produces the same artifact layout so you can drop results into the paper and fill `NOTES.md` with manual UI observations.
@@ -30,6 +31,12 @@ python -m research.suite run --versions original,A --n-steps 400 --seeds 1096812
 
 # Smoke test
 python -m research.suite run --quick
+
+# Isolated inheritance vs original (pure C mechanism)
+python -m research.suite run --versions original,C_only --n-steps 400
+
+# Full stack C vs B (inheritance given A+B)
+python -m research.suite run --versions B,C --n-steps 400
 
 # Multi-config: A/B/C on selected discoveries (titles + one-liners from catalog)
 python -m research.suite run --versions A,B,C \
