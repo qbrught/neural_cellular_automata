@@ -10,7 +10,8 @@ Roadmap (matches the planned A→D path):
   B         — predator–prey losses                       [implemented]
   C_only    — goal inheritance alone (no A/B)            [implemented]
   C         — goal inheritance on top of A+B             [implemented]
-  D         — own goal into f                            [flag reserved]
+  D_fixed   — goal-conditioned f on A+B (fixed goals)    [implemented]
+  D         — goal-conditioned f on A+B+C                [implemented]
 """
 
 from __future__ import annotations
@@ -146,21 +147,41 @@ VERSIONS: dict[str, VersionSpec] = {
             "drops; type ratios and segregation become more dynamical (invasion)."
         ),
     ),
+    "D_fixed": VersionSpec(
+        id="D_fixed",
+        title="Step D fixed — goal-conditioned f (no inheritance)",
+        description=(
+            "Local update f receives own goal as an input feature so "
+            "proposed (s,h) and the f-survival channel can become "
+            "type-specific. Goals stay fixed (no C). Stack: A+B+goal_in_f."
+        ),
+        typed_votes=True,
+        predator_prey_loss=True,
+        goal_inheritance=False,
+        goal_in_f=True,
+        implemented=True,
+        hypothesis=(
+            "With fixed goals, type-conditioned f raises policy/state "
+            "specialization and may lift count-level class divergence Φ "
+            "versus B alone."
+        ),
+    ),
     "D": VersionSpec(
         id="D",
-        title="Step D — goal-conditioned f",
+        title="Step D — goal-conditioned f on A+B+C",
         description=(
             "Local update f receives own goal so memory/state strategies "
-            "can become type-specific."
+            "can become type-specific. Full stack: typed votes (A), "
+            "predator–prey loss (B), goal inheritance (C), goal_in_f (D)."
         ),
         typed_votes=True,
         predator_prey_loss=True,
         goal_inheritance=True,
         goal_in_f=True,
-        implemented=False,
+        implemented=True,
         hypothesis=(
-            "Type-specific internal dynamics (clustering vs hunting) "
-            "appear in s/h and local environment stats."
+            "Type-specific internal dynamics plus dynamical goals: "
+            "colonization with type-conditioned local updates."
         ),
     ),
 }
@@ -171,6 +192,9 @@ _ALIASES: dict[str, str] = {
     "C-only": "C_only",
     "inheritance": "C_only",
     "inherit_only": "C_only",
+    "d_fixed": "D_fixed",
+    "D-fixed": "D_fixed",
+    "Df": "D_fixed",
 }
 
 

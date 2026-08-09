@@ -44,7 +44,9 @@ class Config:
     # alive Moore neighbours (tie → max-rho neighbour). Survivors/deaths keep
     # goals; rho stays fixed. No parameter inheritance.
     goal_inheritance: bool = False
-    # Step D: own goal into f input (not yet implemented).
+    # Step D: own goal into f input (type-conditioned local update).
+    # f always has a goal input slot for param parity; when False the slot
+    # is zeros so goal weights stay inert.
     goal_in_f: bool = False
 
     # ---- Survival rule weights ----

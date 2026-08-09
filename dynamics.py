@@ -377,11 +377,17 @@ def local_update(
     aggregated_messages: Tensor,
     params: Parameters,
     learn_messages: bool = False,
+    goal_in_f: bool = False,
 ) -> tuple[Tensor, Tensor]:
     """Run f to produce proposed next (s, h) for every cell.
 
-    f input: (own_s, own_h, own_x, aggregated_messages).  Shape (N,N, 3d+1)
-    f output: (new_s, new_h).                              Shape (N,N, 2d)
+    f input: (own_s, own_h, own_x, aggregated_messages, goal_slot).
+             Shape (N, N, 3d+2)
+    f output: (new_s, new_h).  Shape (N, N, 2d)
+
+    Goal slot (Step D):
+      * goal_in_f=True  → own goal as float {0,1} (type-conditioned f)
+      * goal_in_f=False → zeros (param-count parity; goal weights inert)
 
     Returns (s_proposed, h_proposed), each (N, N, d). These are the
     *proposals* before survival is applied; surviving cells use them,
@@ -401,8 +407,16 @@ def local_update(
     d = state.d
     own_x = state.x.unsqueeze(-1)  # (N, N, 1)
     messages = aggregated_messages if learn_messages else aggregated_messages.detach()
+    if goal_in_f:
+        # Discrete goal as a scalar feature; no grad through the label itself.
+        goal_slot = state.goals.float().unsqueeze(-1).detach()
+    else:
+        goal_slot = torch.zeros(
+            state.x.shape[0], state.x.shape[1], 1,
+            device=state.x.device, dtype=state.s.dtype,
+        )
     f_in = torch.cat(
-        [state.s, state.h, own_x, messages],
+        [state.s, state.h, own_x, messages, goal_slot],
         dim=-1,
     )
     f_out = batched_mlp(f_in, params.f_W1, params.f_b1, params.f_W2, params.f_b2)
@@ -505,7 +519,11 @@ def forward_step(state: State, params: Parameters, u: Tensor, cfg: Config) -> St
     """
     mp = message_pass(state, params, typed_votes=cfg.typed_votes)
     s_proposed, h_proposed = local_update(
-        state, mp.aggregated_messages, params, learn_messages=cfg.learn_messages
+        state,
+        mp.aggregated_messages,
+        params,
+        learn_messages=cfg.learn_messages,
+        goal_in_f=cfg.goal_in_f,
     )
 
     surv_in = compute_survival_inputs(

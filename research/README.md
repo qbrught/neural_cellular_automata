@@ -11,7 +11,8 @@ Versions form an ablation path:
 | `B` | Predator–prey loss (on top of A) | implemented |
 | `C_only` | Goal inheritance **only** (no A/B) | implemented |
 | `C` | Goal inheritance on A+B (full stack) | implemented |
-| `D` | Goal-conditioned local update `f` | planned |
+| `D_fixed` | Goal-conditioned `f` on A+B (goals fixed) | implemented |
+| `D` | Goal-conditioned `f` on A+B+C | implemented |
 
 Every suite run produces the same artifact layout so you can drop results into the paper and fill `NOTES.md` with manual UI observations.
 

@@ -25,8 +25,11 @@ Dimensions:
        (kin channel); v_harm only to opposite-goal receivers (foe channel).
 
     f (local update): input is (own_state, own_memory, own_alive,
-       aggregated_message_vector_of_dim_d). Output is (new_state, new_memory).
-       in_dim_f  = d + d + 1 + d = 3d + 1
+       aggregated_message_vector_of_dim_d, own_goal_or_zero).
+       Output is (new_state, new_memory).
+       in_dim_f  = d + d + 1 + d + 1 = 3d + 2
+       (goal slot always present for param-count parity; when goal_in_f is
+       False the slot is filled with 0 so those weights stay inert.)
        out_dim_f = 2d
 """
 
@@ -47,7 +50,12 @@ def psi_out_dim(d: int) -> int:
 
 
 def f_in_dim(d: int) -> int:
-    return 3 * d + 1
+    """f input: (s, h, x, M, goal_slot). Goal slot is always allocated.
+
+    When Config.goal_in_f is False, the slot is zeros (weights inert).
+    When True, it carries the cell's discrete goal as a float {0,1}.
+    """
+    return 3 * d + 2
 
 
 def f_out_dim(d: int) -> int:

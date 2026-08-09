@@ -161,13 +161,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.n_steps <= 0 or args.N <= 0:
         print("error: --n-steps and --N must be positive", file=sys.stderr)
         return 2
-    if args.version == "D":
-        print(
-            "error: version D is not implemented yet (goal_in_f reserved)",
-            file=sys.stderr,
-        )
-        return 2
-
     # Canonical version id (aliases like "inheritance" → C_only).
     version_id = args.version
     if version_id is not None:
