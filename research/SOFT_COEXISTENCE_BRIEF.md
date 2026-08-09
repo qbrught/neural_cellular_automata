@@ -305,11 +305,16 @@ with \(B=\lambda(-\log\tilde\rho^R-\log\tilde\rho^E)\), **once per step**, so λ
 
 ## 8. Minimal decision checklist before coding
 
-- [ ] v1 = loss barrier on soft self-masses only (recommended)  
-- [ ] Add once to `total_loss`, not per-cell broadcast of \(B\) without scaling  
-- [ ] Fixed goals + A first; \(w_2=w_3\) and asymmetric both  
-- [ ] Success = seed success rate + mean \(\Phi_{\mathrm{late}}\), not only mean Φ  
-- [ ] Report as regularizer, not emergent ecology  
+- [x] v1 = loss barrier on soft self-masses only (recommended)  
+- [x] Add once to `total_loss`, not per-cell broadcast of \(B\) without scaling  
+- [x] Fixed goals + A first; \(w_2=w_3\) (primary; suite `class_div_F_sym_w_4000`)  
+- [x] Success = seed success rate + mean \(\Phi_{\mathrm{late}}\), not only mean Φ  
+- [x] Report as regularizer, not emergent ecology  
+
+**Empirical note (2026-08-09):** under \(w_2=w_3\), T=4000, seeds {1096812628, 42, 7},
+F (λ ∈ {0.01, 0.1, 1}) does **not** raise Φ_late success rate vs A (still 2/3);
+seed 7 stays a full-grid null; high-Φ seeds still lose eliminators by attrition.
+See `research/results_snapshots/class_div_F_sym_w_4000/`.
 
 ---
 
