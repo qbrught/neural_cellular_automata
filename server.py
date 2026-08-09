@@ -61,6 +61,9 @@ UI_FIELDS = [
     ("predator_prey_loss", "Pred-prey loss B (0/1)", "int", 0, 1, 1),
     ("goal_inheritance", "Goal inherit C (0/1)", "int", 0, 1, 1),
     ("goal_in_f", "Goal in f D (0/1)", "int", 0, 1, 1),
+    ("coexistence_pressure", "Coexist pressure F (0/1)", "int", 0, 1, 1),
+    ("coexistence_lambda", "Coexist λ", "float", 0.0, 2.0, 0.001),
+    ("coexistence_delta", "Coexist δ", "float", 1e-8, 0.1, 1e-5),
     ("w0", "w₀ bias", "float", -5.0, 5.0, 0.01),
     ("w1", "w₁ alive", "float", -5.0, 5.0, 0.01),
     ("w2", "w₂ reproducer", "float", -5.0, 5.0, 0.01),
@@ -110,6 +113,7 @@ def payload_to_cfg(values: dict) -> Config:
             "predator_prey_loss",
             "goal_inheritance",
             "goal_in_f",
+            "coexistence_pressure",
         ):
             out[k] = bool(int(v))
         elif kind == "intornone":

@@ -88,6 +88,26 @@ def summarize_run(
 
     m_loss = np.isfinite(lr) & np.isfinite(le)
 
+    # Class divergence Φ: mean_t |r_t − f_init a_t| / (a_t + ε)
+    eps = 1e-9
+    residual_frac = np.abs(ra - pred_ra) / (alive + eps)
+    phi = float(np.mean(residual_frac))
+    phi_late = float(np.mean(residual_frac[late]))
+    phi_early = float(np.mean(residual_frac[early]))
+
+    # Type balance among alive cells: min(r,e)/a (viability / coexistence).
+    with np.errstate(invalid="ignore", divide="ignore"):
+        min_type_frac = np.where(
+            alive > 0,
+            np.minimum(ra, ea) / alive,
+            np.nan,
+        )
+    # Type extinction (one class hits 0 while other may live).
+    type_extinct_steps = np.where((ra <= 0) | (ea <= 0))[0]
+    type_extinct_step = (
+        int(type_extinct_steps[0]) if len(type_extinct_steps) else None
+    )
+
     out: dict[str, Any] = {
         "T": T,
         "goal_frac_repro": float(goal_frac_repro),  # initial (all cells)
@@ -96,6 +116,9 @@ def summarize_run(
         "corr_ra_ea": _safe_corr(ra, ea),
         "corr_ra_density": _safe_corr(ra, pred_ra),
         "mean_abs_residual_ra": float(np.mean(np.abs(ra - pred_ra))),
+        "phi_class": phi,
+        "phi_class_late": phi_late,
+        "phi_class_early": phi_early,
         "ra_std": float(ra.std()),
         # Population
         "mean_alive": float(alive.mean()),
@@ -105,6 +128,10 @@ def summarize_run(
         "ratio_ra_ea_late": _safe_ratio(float(ra[late].mean()), float(ea[late].mean())),
         "mean_alive_early": float(alive[early].mean()),
         "mean_alive_late": float(alive[late].mean()),
+        "mean_min_type_frac": _nanmean(min_type_frac),
+        "late_min_type_frac": _nanmean(min_type_frac[late]),
+        "early_min_type_frac": _nanmean(min_type_frac[early]),
+        "type_extinct_step": type_extinct_step,
         "extinct_step": extinct_step,
         # Loss structure
         "corr_loss_r_e": _safe_corr(lr[m_loss], le[m_loss]) if m_loss.any() else float("nan"),
@@ -175,6 +202,32 @@ def summarize_run(
         out["alive_goal_frac_repro_final"] = float("nan")
         out["mean_abs_goal_frac_delta"] = float("nan")
 
+    # Experiment F: soft coexistence barrier diagnostics.
+    if "coexistence_barrier" in series:
+        B = np.asarray(series["coexistence_barrier"], float)
+        out["mean_coexistence_barrier"] = _nanmean(B)
+        out["late_coexistence_barrier"] = _nanmean(B[late])
+    else:
+        out["mean_coexistence_barrier"] = float("nan")
+        out["late_coexistence_barrier"] = float("nan")
+    if "soft_rho_R" in series and "soft_rho_E" in series:
+        sR = np.asarray(series["soft_rho_R"], float)
+        sE = np.asarray(series["soft_rho_E"], float)
+        out["mean_soft_rho_R"] = _nanmean(sR)
+        out["mean_soft_rho_E"] = _nanmean(sE)
+        out["late_soft_rho_R"] = _nanmean(sR[late])
+        out["late_soft_rho_E"] = _nanmean(sE[late])
+        out["late_min_soft_rho"] = _nanmean(np.minimum(sR[late], sE[late]))
+    else:
+        out["mean_soft_rho_R"] = float("nan")
+        out["mean_soft_rho_E"] = float("nan")
+        out["late_soft_rho_R"] = float("nan")
+        out["late_soft_rho_E"] = float("nan")
+        out["late_min_soft_rho"] = float("nan")
+
+    # Seed-level "success" for large late class divergence (brief τ=0.2).
+    out["phi_late_gt_0.2"] = bool(np.isfinite(phi_late) and phi_late > 0.2)
+
     return out
 
 
@@ -190,11 +243,14 @@ def summary_to_row(version_id: str, seed: int, summary: dict[str, Any]) -> dict[
 # Metrics highlighted in the paper comparison table (order matters).
 TABLE_COLUMNS: list[tuple[str, str, str]] = [
     # key, header, format
+    ("phi_class", "Φ", ".4f"),
+    ("phi_class_late", "Φ_late", ".4f"),
     ("corr_ra_ea", "corr(ra,ea)", ".3f"),
     ("corr_ra_density", "corr(ra, dens)", ".3f"),
     ("mean_abs_residual_ra", "|ra residual|", ".2f"),
     ("ratio_ra_ea_early", "ra/ea early", ".2f"),
     ("ratio_ra_ea_late", "ra/ea late", ".2f"),
+    ("late_min_type_frac", "min(r,e)/a late", ".3f"),
     ("goal_frac_repro_drift", "g_frac drift", ".3f"),
     ("mean_abs_goal_frac_delta", "mean|Δg_alive|", ".4f"),
     ("corr_loss_r_e", "corr(Lr,Le)", ".3f"),

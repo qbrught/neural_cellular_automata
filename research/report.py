@@ -114,6 +114,8 @@ def write_report(
             f"`predator_prey_loss={v.predator_prey_loss}`, "
             f"`goal_inheritance={v.goal_inheritance}`, "
             f"`goal_in_f={v.goal_in_f}`, "
+            f"`coexistence_pressure={getattr(v, 'coexistence_pressure', False)}`, "
+            f"`coexistence_lambda={getattr(v, 'coexistence_lambda', 0.01)}`, "
             f"`symmetrize_RE_weights={getattr(v, 'symmetrize_RE_weights', False)}`"
         )
         lines.append("")

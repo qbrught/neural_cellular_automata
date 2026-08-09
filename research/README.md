@@ -14,6 +14,7 @@ Versions form an ablation path:
 | `D_fixed` | Goal-conditioned `f` on A+B (goals fixed) | implemented |
 | `D` | Goal-conditioned `f` on A+B+C | implemented |
 | `E` | Typed votes + symmetric \(w_2=w_3\) (env ablation) | implemented |
+| `F` | Typed votes + soft coexistence pressure (λ barrier) | implemented |
 
 Every suite run produces the same artifact layout so you can drop results into the paper and fill `NOTES.md` with manual UI observations.
 

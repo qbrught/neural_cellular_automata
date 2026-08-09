@@ -23,13 +23,18 @@ def aggregate_by_version(results: list[dict[str, Any]]) -> dict[str, dict[str, f
         agg: dict[str, float] = {}
         for k in keys:
             vals = np.array([row[k] for row in rows], dtype=float)
-            # extinct_step may be None
-            if k == "extinct_step":
+            # extinct_step / type_extinct_step may be None
+            if k in ("extinct_step", "type_extinct_step"):
                 nums = [row[k] for row in rows if row[k] is not None]
-                agg["extinct_rate"] = float(len(nums) / len(rows))
-                agg["mean_extinct_step"] = (
+                prefix = "type_extinct" if k == "type_extinct_step" else "extinct"
+                agg[f"{prefix}_rate"] = float(len(nums) / len(rows))
+                agg[f"mean_{prefix}_step"] = (
                     float(np.mean(nums)) if nums else float("nan")
                 )
+                continue
+            if k == "phi_late_gt_0.2":
+                vals_bool = [bool(row[k]) for row in rows]
+                agg["phi_late_gt_0.2_rate"] = float(sum(vals_bool) / len(rows))
                 continue
             agg[f"{k}_mean"] = float(np.nanmean(vals))
             agg[f"{k}_std"] = float(np.nanstd(vals)) if len(vals) > 1 else 0.0

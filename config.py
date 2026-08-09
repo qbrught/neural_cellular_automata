@@ -48,6 +48,13 @@ class Config:
     # f always has a goal input slot for param parity; when False the slot
     # is zeros so goal weights stay inert.
     goal_in_f: bool = False
+    # Experiment F: soft coexistence pressure — weak barrier on soft living
+    # mass of each goal-class so learning is discouraged from extinguishing
+    # either type. Added once to the step total loss (not per-cell broadcast).
+    # See research/SOFT_COEXISTENCE_BRIEF.md.
+    coexistence_pressure: bool = False
+    coexistence_lambda: float = 0.01  # λ strength of barrier
+    coexistence_delta: float = 1e-4  # δ floor inside log(ρ̃ + δ)
 
     # ---- Survival rule weights ----
     # Logistic combination of:
@@ -93,6 +100,14 @@ class Config:
             raise ValueError(f"eta must be positive, got {self.eta}")
         if self.n_steps is not None and self.n_steps <= 0:
             raise ValueError(f"n_steps must be positive or None, got {self.n_steps}")
+        if self.coexistence_lambda < 0:
+            raise ValueError(
+                f"coexistence_lambda must be non-negative, got {self.coexistence_lambda}"
+            )
+        if self.coexistence_delta <= 0:
+            raise ValueError(
+                f"coexistence_delta must be positive, got {self.coexistence_delta}"
+            )
         if self.init_noise_std < 0:
             raise ValueError(
                 f"init_noise_std must be non-negative, got {self.init_noise_std}"

@@ -60,10 +60,68 @@ def _survival_logit_parts(
     )
 
 
+def compute_p_self(
+    state: State,
+    step_out: StepOutput,
+    cfg: Config,
+) -> Tensor:
+    """Soft self-survival probabilities with Path-1 detach rules.
+
+    Gradient only through f_signal (this cell's f). Neighbour counts and both
+    vote channels are detached. Used by the local loss and by the soft
+    coexistence barrier (Experiment F).
+    """
+    surv_in = step_out.survival_inputs
+    f_signal = surv_in.f_signal  # (N, N), differentiable through f
+    logit_self = _survival_logit_parts(
+        surv_in.A.detach(),
+        surv_in.R.detach(),
+        surv_in.E.detach(),
+        surv_in.V_kin.detach(),
+        surv_in.V_foe.detach(),
+        f_signal,  # KEEP gradient through f
+        cfg,
+    )
+    p_self = torch.sigmoid(logit_self)  # (N, N)
+    if cfg.require_alive_neighbour:
+        p_self = p_self * (surv_in.A > 0).float()
+    return p_self
+
+
+def coexistence_barrier(
+    state: State,
+    p_self: Tensor,
+    cfg: Config,
+) -> Tensor:
+    """Soft two-log barrier on global type densities from self soft masses.
+
+        B = λ ( -log(ρ̃^R + δ) - log(ρ̃^E + δ) )
+        ρ̃^R = (∑_i p_i^{self} 1_{g_i=R}) / N²
+        ρ̃^E = (∑_i p_i^{self} 1_{g_i=E}) / N²
+
+    Gradient only through each cell's own p_i (self f-path). Add B once to
+    the step total loss so λ does not scale with N_alive.
+    """
+    n_cells = float(cfg.N * cfg.N)
+    is_r = (state.goals == GOAL_REPRODUCE).to(dtype=p_self.dtype)
+    is_e = 1.0 - is_r
+    tilde_r = (p_self * is_r).sum()
+    tilde_e = (p_self * is_e).sum()
+    delta = float(cfg.coexistence_delta)
+    rho_r = tilde_r / n_cells
+    rho_e = tilde_e / n_cells
+    B = float(cfg.coexistence_lambda) * (
+        -torch.log(rho_r + delta) - torch.log(rho_e + delta)
+    )
+    return B
+
+
 def compute_local_losses(
     state: State,
     step_out: StepOutput,
     cfg: Config,
+    *,
+    p_self: Tensor | None = None,
 ) -> Tensor:
     """Compute per-cell local losses with gradient-locality detach tricks.
 
@@ -75,6 +133,9 @@ def compute_local_losses(
     foes. Eliminators either pressure all neighbours (default) or, with
     cfg.predator_prey_loss (step B), only reproducer (prey) neighbours.
     The -p_i term is unsigned: both types want themselves alive.
+
+    Soft coexistence (Experiment F) is *not* folded into the per-cell tensor;
+    see ``coexistence_barrier`` / ``gradient_step`` (added once to total loss).
 
     Gradient paths (only ones we want to KEEP):
       * p_i through u . s_proposed_i  ->  this cell's f params
@@ -88,6 +149,10 @@ def compute_local_losses(
       * p_j through u . s_proposed_j
       * p_i through M_i when learn_messages=False: message head stays frozen.
 
+    Args:
+        p_self: optional precomputed soft self-survival probs (same graph as
+            used for the coexistence barrier). If None, computed here.
+
     Returns:
         Tensor of shape (N, N): per-cell losses. With learn_messages=False,
         losses.sum().backward() respects per-cell param locality. With
@@ -96,22 +161,10 @@ def compute_local_losses(
     """
     surv_in = step_out.survival_inputs
     outgoing = step_out.outgoing_votes       # (N, N, 8, 2): help, harm
-    f_signal = surv_in.f_signal              # (N, N), differentiable through f
 
     # Term 1: -p_i (self-survival), with both vote channels detached.
-    A_d = surv_in.A.detach()
-    R_d = surv_in.R.detach()
-    E_d = surv_in.E.detach()
-    logit_self = _survival_logit_parts(
-        A_d, R_d, E_d,
-        surv_in.V_kin.detach(),
-        surv_in.V_foe.detach(),
-        f_signal,  # KEEP gradient through f
-        cfg,
-    )
-    p_self = torch.sigmoid(logit_self)        # (N, N)
-    if cfg.require_alive_neighbour:
-        p_self = p_self * (surv_in.A > 0).float()
+    if p_self is None:
+        p_self = compute_p_self(state, step_out, cfg)
 
     # Term 2: neighbours' p_j with V-detach trick on both channels.
     V_kin_at_neighbour = gather_neighbours(surv_in.V_kin)   # (N, N, 8)
@@ -119,7 +172,7 @@ def compute_local_losses(
     A_at_neighbour = gather_neighbours(surv_in.A)           # (N, N, 8)
     R_at_neighbour = gather_neighbours(surv_in.R)           # (N, N, 8)
     E_at_neighbour = gather_neighbours(surv_in.E)           # (N, N, 8)
-    f_signal_at_neighbour = gather_neighbours(f_signal)     # (N, N, 8)
+    f_signal_at_neighbour = gather_neighbours(surv_in.f_signal)  # (N, N, 8)
 
     my_help = outgoing[..., 0]                              # (N, N, 8)
     my_harm = outgoing[..., 1]                              # (N, N, 8)
@@ -205,14 +258,29 @@ def gradient_step(
     Only ALIVE cells at the current step update their parameters
     (dead cells do nothing, per spec).
 
+    When ``cfg.coexistence_pressure`` is on, a soft type-mass barrier B is
+    added **once** to the step total (not broadcast per cell):
+
+        total = (losses * alive).sum() + B
+
+    so λ is independent of N_alive. B depends on soft self-masses only
+    (Path-1 local through each cell's f).
+
     Returns a dict of summary statistics for logging.
     """
-    losses = compute_local_losses(state, step_out, cfg)   # (N, N)
+    # Shared p_self graph for local loss and optional coexistence barrier.
+    p_self = compute_p_self(state, step_out, cfg)
+    losses = compute_local_losses(state, step_out, cfg, p_self=p_self)  # (N, N)
 
     # Mask: only alive cells contribute. Multiplying loss by x_i means dead
     # cells have zero contribution -> zero gradient at their parameter slot.
     alive_mask = state.x  # (N, N), float 0/1
     masked_total = (losses * alive_mask).sum()
+
+    barrier = None
+    if cfg.coexistence_pressure and cfg.coexistence_lambda > 0:
+        barrier = coexistence_barrier(state, p_self, cfg)
+        masked_total = masked_total + barrier
 
     # Zero any pre-existing grads on params.
     for t in params.tensors():
@@ -225,6 +293,8 @@ def gradient_step(
     # for dead cells (since their loss was masked to 0). We still apply the
     # mask explicitly so the update is correct even if a future change adds
     # gradient paths that bypass the alive multiplication.
+    # Coexistence barrier gradients also only touch each cell's own f (via
+    # p_self); we still mask so dead cells never update.
     eta = cfg.eta
     with torch.no_grad():
         for t in params.tensors():
@@ -245,9 +315,22 @@ def gradient_step(
     elim_loss = (
         losses[elim_mask].mean().item() if elim_mask.any() else float("nan")
     )
+    # Soft type masses (detached) for diagnostics.
+    with torch.no_grad():
+        n_cells = float(cfg.N * cfg.N)
+        is_r = (state.goals == GOAL_REPRODUCE).float()
+        tilde_r = float((p_self.detach() * is_r).sum().item())
+        tilde_e = float((p_self.detach() * (1.0 - is_r)).sum().item())
+        soft_rho_r = tilde_r / n_cells
+        soft_rho_e = tilde_e / n_cells
     return {
         "loss_total": float(masked_total.detach().item()),
         "loss_reproduce_mean": repro_loss,
         "loss_eliminate_mean": elim_loss,
         "n_alive": int(state.x.sum().item()),
+        "coexistence_barrier": (
+            float(barrier.detach().item()) if barrier is not None else 0.0
+        ),
+        "soft_rho_R": soft_rho_r,
+        "soft_rho_E": soft_rho_e,
     }

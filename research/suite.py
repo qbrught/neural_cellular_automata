@@ -96,10 +96,14 @@ def _run_one_config(
             dt = time.time() - t0
             s = result["summary"]
             g_drift = s.get("goal_frac_repro_drift", float("nan"))
+            phi = s.get("phi_class", float("nan"))
+            phi_late = s.get("phi_class_late", float("nan"))
+            min_tf = s.get("late_min_type_frac", float("nan"))
             print(
                 f"  done in {dt:.1f}s  "
+                f"Φ={phi:.4f}  Φ_late={phi_late:.4f}  "
                 f"corr(ra,ea)={s['corr_ra_ea']:.3f}  "
-                f"ra/ea late={s['ratio_ra_ea_late']:.2f}  "
+                f"min_type late={min_tf:.3f}  "
                 f"g_drift={g_drift:+.3f}  "
                 f"alive late={s['mean_alive_late']:.1f}"
             )

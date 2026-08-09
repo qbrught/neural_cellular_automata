@@ -174,6 +174,11 @@ def run_experiment(
         # Step C: goal composition (all cells + among alive)
         "goal_frac_repro": [],
         "alive_goal_frac_repro": [],
+        # Experiment F: soft coexistence diagnostics
+        "coexistence_barrier": [],
+        "soft_rho_R": [],
+        "soft_rho_E": [],
+        "min_type_frac": [],
     }
 
     n = int(cfg.n_steps)
@@ -188,20 +193,31 @@ def run_experiment(
                 "loss_eliminate_mean": float("nan"),
                 "loss_total": 0.0,
                 "n_alive": int(state.x.sum().item()),
+                "coexistence_barrier": 0.0,
+                "soft_rho_R": float("nan"),
+                "soft_rho_E": float("nan"),
             }
 
         x = state.x
         g = state.goals
-        buckets["alive"].append(int(x.sum().item()))
-        buckets["reproducer_alive"].append(
-            int(((g == GOAL_REPRODUCE) & (x > 0)).sum().item())
-        )
-        buckets["eliminator_alive"].append(
-            int(((g == GOAL_ELIMINATE) & (x > 0)).sum().item())
-        )
+        n_alive = int(x.sum().item())
+        n_ra = int(((g == GOAL_REPRODUCE) & (x > 0)).sum().item())
+        n_ea = int(((g == GOAL_ELIMINATE) & (x > 0)).sum().item())
+        buckets["alive"].append(n_alive)
+        buckets["reproducer_alive"].append(n_ra)
+        buckets["eliminator_alive"].append(n_ea)
         buckets["loss_r"].append(stats["loss_reproduce_mean"])
         buckets["loss_e"].append(stats["loss_eliminate_mean"])
         buckets["loss_total"].append(stats["loss_total"])
+        buckets["coexistence_barrier"].append(
+            float(stats.get("coexistence_barrier", 0.0))
+        )
+        buckets["soft_rho_R"].append(float(stats.get("soft_rho_R", float("nan"))))
+        buckets["soft_rho_E"].append(float(stats.get("soft_rho_E", float("nan"))))
+        if n_alive > 0:
+            buckets["min_type_frac"].append(min(n_ra, n_ea) / n_alive)
+        else:
+            buckets["min_type_frac"].append(float("nan"))
 
         diag = _vote_diagnostics(state, step_out)
         for k, v in diag.items():

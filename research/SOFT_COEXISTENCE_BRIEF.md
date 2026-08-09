@@ -1,7 +1,8 @@
 # Soft coexistence pressure — research & implementation brief
 
-**Status:** proposal (not implemented)  
-**Working name:** Experiment **F** / flag `coexistence_pressure`  
+**Status:** implemented (v1: loss barrier on soft self-masses)  
+**Working name:** Experiment **F** / flag `coexistence_pressure` / suite version `F` (`A_coexist`)  
+
 **Goal:** Keep both goal-classes present long enough that class divergence can mean *two coexisting dynamical processes*, not “one type won by attrition” or “grid saturated, Φ → 0.”  
 **Context:** Under \(w_2=w_3\) and long horizon, typed votes (A) still produce large \(\Phi_{\mathrm{late}}\) on some seeds but **collapse to null on others** (e.g. full lattice, density tracking). Soft coexistence is a candidate stabilizer—not a substitute for typed interaction or timescale.
 

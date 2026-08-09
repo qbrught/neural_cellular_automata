@@ -13,6 +13,7 @@ Roadmap (matches the planned A→D path, plus environment ablations):
   D_fixed   — goal-conditioned f on A+B (fixed goals)    [implemented]
   D         — goal-conditioned f on A+B+C                [implemented]
   E         — A + symmetric survival weights w2=w3       [implemented]
+  F         — A + soft coexistence pressure              [implemented]
 """
 
 from __future__ import annotations
@@ -35,6 +36,10 @@ class VersionSpec:
     predator_prey_loss: bool = False
     goal_inheritance: bool = False
     goal_in_f: bool = False
+    # Experiment F: soft coexistence barrier on soft type masses.
+    coexistence_pressure: bool = False
+    coexistence_lambda: float = 0.01
+    coexistence_delta: float = 1e-4
     # Environment ablation (not a dynamics-code path): force w2 = w3.
     # When True, both are set to the mean of the base config's w2 and w3
     # so average type-neighbour pressure is preserved.
@@ -57,6 +62,9 @@ class VersionSpec:
             predator_prey_loss=self.predator_prey_loss,
             goal_inheritance=self.goal_inheritance,
             goal_in_f=self.goal_in_f,
+            coexistence_pressure=self.coexistence_pressure,
+            coexistence_lambda=self.coexistence_lambda,
+            coexistence_delta=self.coexistence_delta,
         )
         if self.symmetrize_RE_weights:
             w = 0.5 * (float(out.w2) + float(out.w3))
@@ -70,6 +78,9 @@ class VersionSpec:
             f"predator_prey_loss={self.predator_prey_loss}\n"
             f"goal_inheritance={self.goal_inheritance}\n"
             f"goal_in_f={self.goal_in_f}\n"
+            f"coexistence_pressure={self.coexistence_pressure}\n"
+            f"coexistence_lambda={self.coexistence_lambda}\n"
+            f"coexistence_delta={self.coexistence_delta}\n"
             f"symmetrize_RE_weights={self.symmetrize_RE_weights}\n"
         )
 
@@ -217,6 +228,31 @@ VERSIONS: dict[str, VersionSpec] = {
             "toward original, benchmark divergence was partly w2≠w3."
         ),
     ),
+    "F": VersionSpec(
+        id="F",
+        title="Step F — typed votes + soft coexistence pressure",
+        description=(
+            "Builds on A (typed votes). Adds a weak global soft barrier on "
+            "soft living mass of each goal-class: "
+            "B = λ(−log ρ̃^R − log ρ̃^E), added once to the step total loss. "
+            "ρ̃ uses self soft survival probs only (Path-1 local through f). "
+            "Viability regularizer so both classes stay observable under "
+            "long-horizon learning; not forced 50/50. Default λ=0.01."
+        ),
+        typed_votes=True,
+        predator_prey_loss=False,
+        goal_inheritance=False,
+        goal_in_f=False,
+        coexistence_pressure=True,
+        coexistence_lambda=0.01,
+        coexistence_delta=1e-4,
+        implemented=True,
+        hypothesis=(
+            "Under w2=w3, A+F raises seed success rate for large Φ_late "
+            "vs A alone by reducing type extinction / full-grid nulls, "
+            "without collapsing specialization if λ is small."
+        ),
+    ),
 }
 
 # Aliases for CLI convenience.
@@ -230,6 +266,9 @@ _ALIASES: dict[str, str] = {
     "Df": "D_fixed",
     "A_sym": "E",
     "a_sym": "E",
+    "A_coexist": "F",
+    "a_coexist": "F",
+    "A+F": "F",
 }
 
 
