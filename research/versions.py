@@ -4,7 +4,7 @@ Each version is a named ablation of the system defined by Config flags.
 The suite applies these flags on top of a shared base config + seed so
 comparisons isolate the mechanism change, not hyperparameters.
 
-Roadmap (matches the planned A→D path):
+Roadmap (matches the planned A→D path, plus environment ablations):
   original  — single indiscriminate vote channel
   A         — typed help/harm votes routed by kin/foe   [implemented]
   B         — predator–prey losses                       [implemented]
@@ -12,6 +12,7 @@ Roadmap (matches the planned A→D path):
   C         — goal inheritance on top of A+B             [implemented]
   D_fixed   — goal-conditioned f on A+B (fixed goals)    [implemented]
   D         — goal-conditioned f on A+B+C                [implemented]
+  E         — A + symmetric survival weights w2=w3       [implemented]
 """
 
 from __future__ import annotations
@@ -34,6 +35,10 @@ class VersionSpec:
     predator_prey_loss: bool = False
     goal_inheritance: bool = False
     goal_in_f: bool = False
+    # Environment ablation (not a dynamics-code path): force w2 = w3.
+    # When True, both are set to the mean of the base config's w2 and w3
+    # so average type-neighbour pressure is preserved.
+    symmetrize_RE_weights: bool = False
     # Whether this version is fully implemented (suite can run it).
     implemented: bool = True
     # Free-text experimental hypothesis for the report template.
@@ -46,13 +51,17 @@ class VersionSpec:
                 f"Version {self.id!r} is not implemented yet "
                 f"({self.title}). Implement the mechanism before running."
             )
-        return replace(
+        out = replace(
             cfg,
             typed_votes=self.typed_votes,
             predator_prey_loss=self.predator_prey_loss,
             goal_inheritance=self.goal_inheritance,
             goal_in_f=self.goal_in_f,
         )
+        if self.symmetrize_RE_weights:
+            w = 0.5 * (float(out.w2) + float(out.w3))
+            out = replace(out, w2=w, w3=w)
+        return out
 
     def flag_summary(self) -> str:
         """Short human-readable flag dump for VERSION.txt / notes."""
@@ -61,6 +70,7 @@ class VersionSpec:
             f"predator_prey_loss={self.predator_prey_loss}\n"
             f"goal_inheritance={self.goal_inheritance}\n"
             f"goal_in_f={self.goal_in_f}\n"
+            f"symmetrize_RE_weights={self.symmetrize_RE_weights}\n"
         )
 
 
@@ -184,6 +194,29 @@ VERSIONS: dict[str, VersionSpec] = {
             "colonization with type-conditioned local updates."
         ),
     ),
+    "E": VersionSpec(
+        id="E",
+        title="Step E — typed votes + symmetric R/E survival weights",
+        description=(
+            "Same as A (typed help/harm votes) but environment ablation: "
+            "w2 = w3 = mean(base.w2, base.w3). Reproducer and eliminator "
+            "neighbour counts enter the survival logit with equal weight, so "
+            "count-level class divergence cannot be blamed on asymmetric "
+            "fixed physics (benchmark has w2 ≫ w3). No new code path — only "
+            "config weights."
+        ),
+        typed_votes=True,
+        predator_prey_loss=False,
+        goal_inheritance=False,
+        goal_in_f=False,
+        symmetrize_RE_weights=True,
+        implemented=True,
+        hypothesis=(
+            "If Φ under E remains comparable to A at long horizon, typed "
+            "votes alone drive fixed-goal class divergence; if Φ collapses "
+            "toward original, benchmark divergence was partly w2≠w3."
+        ),
+    ),
 }
 
 # Aliases for CLI convenience.
@@ -195,6 +228,8 @@ _ALIASES: dict[str, str] = {
     "d_fixed": "D_fixed",
     "D-fixed": "D_fixed",
     "Df": "D_fixed",
+    "A_sym": "E",
+    "a_sym": "E",
 }
 
 

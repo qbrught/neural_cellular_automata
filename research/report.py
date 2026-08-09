@@ -113,7 +113,8 @@ def write_report(
             f"Flags: `typed_votes={v.typed_votes}`, "
             f"`predator_prey_loss={v.predator_prey_loss}`, "
             f"`goal_inheritance={v.goal_inheritance}`, "
-            f"`goal_in_f={v.goal_in_f}`"
+            f"`goal_in_f={v.goal_in_f}`, "
+            f"`symmetrize_RE_weights={getattr(v, 'symmetrize_RE_weights', False)}`"
         )
         lines.append("")
 
