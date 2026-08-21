@@ -29,7 +29,7 @@ from torch import Tensor
 
 from config import Config
 from dynamics import StepOutput
-from environment import Environment
+from environment import Environment, edge_kappa_product, eta_map
 from grid import gather_neighbours
 from parameters import Parameters
 from state import GOAL_REPRODUCE, State
@@ -274,6 +274,7 @@ def gradient_step(
         raise AssertionError(
             "environment_heterogeneous=True requires env= (Grid.env)."
         )
+    env_use = env if cfg.environment_heterogeneous else None
     # Shared p_self graph for local loss and optional coexistence barrier.
     p_self = compute_p_self(state, step_out, cfg)
     losses = compute_local_losses(state, step_out, cfg, p_self=p_self)  # (N, N)
@@ -301,16 +302,26 @@ def gradient_step(
     # gradient paths that bypass the alive multiplication.
     # Coexistence barrier gradients also only touch each cell's own f (via
     # p_self); we still mask so dead cells never update.
-    eta = cfg.eta
     with torch.no_grad():
-        for t in params.tensors():
-            if t.grad is None:
-                continue
-            # Broadcast (N, N) alive mask over the parameter's trailing dims.
-            m = alive_mask
-            while m.dim() < t.grad.dim():
-                m = m.unsqueeze(-1)
-            t.add_(t.grad * m, alpha=-eta)
+        if env_use is None:
+            for t in params.tensors():
+                if t.grad is None:
+                    continue
+                m = alive_mask
+                while m.dim() < t.grad.dim():
+                    m = m.unsqueeze(-1)
+                t.add_(t.grad * m, alpha=-cfg.eta)
+        else:
+            e = eta_map(state, cfg, env_use)  # frozen (N, N)
+            for t in params.tensors():
+                if t.grad is None:
+                    continue
+                m = alive_mask
+                ee = e
+                while m.dim() < t.grad.dim():
+                    m = m.unsqueeze(-1)
+                    ee = ee.unsqueeze(-1)
+                t.add_(t.grad * m * ee, alpha=-1.0)
 
     # Summary stats for logging.
     repro_mask = state.reproduce_mask() & (state.x > 0)
@@ -329,6 +340,17 @@ def gradient_step(
         tilde_e = float((p_self.detach() * (1.0 - is_r)).sum().item())
         soft_rho_r = tilde_r / n_cells
         soft_rho_e = tilde_e / n_cells
+        emap = eta_map(state, cfg, env_use)
+        alive_bool = state.x > 0
+        eta_mean_alive = (
+            float(emap[alive_bool].mean().item()) if alive_bool.any() else float("nan")
+        )
+        kappa_edge_mean = float("nan")
+        if env_use is not None:
+            kprod = edge_kappa_product(state, env_use)
+            edge = (state.x.unsqueeze(-1) > 0) & (gather_neighbours(state.x) > 0)
+            if edge.any():
+                kappa_edge_mean = float(kprod[edge].mean().item())
     return {
         "loss_total": float(masked_total.detach().item()),
         "loss_reproduce_mean": repro_loss,
@@ -339,4 +361,6 @@ def gradient_step(
         ),
         "soft_rho_R": soft_rho_r,
         "soft_rho_E": soft_rho_e,
+        "eta_mean_alive": eta_mean_alive,
+        "kappa_edge_mean": kappa_edge_mean,
     }
