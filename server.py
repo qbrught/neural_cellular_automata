@@ -25,112 +25,23 @@ import json
 import logging
 import threading
 import time
-from dataclasses import asdict, fields
+from dataclasses import asdict
 from pathlib import Path
 
-import numpy as np
-import torch
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from config import Config
-from dynamics import forward_step
-from learning import gradient_step
-from simulate import build_grid
-from state import GOAL_REPRODUCE, GOAL_ELIMINATE
+from ui_config import cfg_to_payload, payload_to_cfg
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("ncsa.server")
 
 from simulation_engine import SimulationEngine
 
-
-# Config helpers — what fields the UI exposes, with metadata for slider ranges.
-
-# (field_name, label, kind, min, max, step)  — kind is "int" | "float" | "intornone"
-UI_FIELDS = [
-    ("N", "Grid size N", "int", 5, 200, 1),
-    ("d", "State dim d", "int", 1, 64, 1),
-    ("hidden", "MLP hidden", "int", 4, 128, 1),
-    ("eta", "Learning rate η", "float", 0.0, 1.0, 0.001),
-    ("learn", "Learn (0/1)", "int", 0, 1, 1),
-    ("learn_messages", "Learn messages (0/1)", "int", 0, 1, 1),
-    ("require_alive_neighbour", "Require alive nbr (0/1)", "int", 0, 1, 1),
-    ("typed_votes", "Typed votes A (0/1)", "int", 0, 1, 1),
-    ("predator_prey_loss", "Pred-prey loss B (0/1)", "int", 0, 1, 1),
-    ("goal_inheritance", "Goal inherit C (0/1)", "int", 0, 1, 1),
-    ("goal_in_f", "Goal in f D (0/1)", "int", 0, 1, 1),
-    ("coexistence_pressure", "Coexist pressure F (0/1)", "int", 0, 1, 1),
-    ("coexistence_lambda", "Coexist λ", "float", 0.0, 2.0, 0.001),
-    ("coexistence_delta", "Coexist δ", "float", 1e-8, 0.1, 1e-5),
-    ("w0", "w₀ bias", "float", -5.0, 5.0, 0.01),
-    ("w1", "w₁ alive", "float", -5.0, 5.0, 0.01),
-    ("w2", "w₂ reproducer", "float", -5.0, 5.0, 0.01),
-    ("w3", "w₃ eliminator", "float", -5.0, 5.0, 0.01),
-    ("w4_help", "w₄ help (kin)", "float", -5.0, 5.0, 0.01),
-    ("w4_harm", "w₄ harm (foe)", "float", -5.0, 5.0, 0.01),
-    ("w5", "w₅ f-signal", "float", -5.0, 5.0, 0.01),
-    ("seed", "Seed", "int", 0, 1_000_000, 1),
-    ("init_alive_prob", "Init alive prob", "float", 0.0, 1.0, 0.01),
-    ("init_noise_std", "Init noise std", "float", 0.0, 1.0, 0.001),
-    ("u_seed", "u seed", "int", 0, 1_000_000, 1),
-    ("n_steps", "n_steps (blank=∞)", "intornone", 0, 10_000_000, 1),
-]
-
-
-def cfg_to_payload(cfg: Config) -> dict:
-    return {
-        "fields": [
-            {"name": n, "label": lbl, "kind": kind, "min": mn, "max": mx, "step": st}
-            for (n, lbl, kind, mn, mx, st) in UI_FIELDS
-        ],
-        "values": asdict(cfg),
-    }
-
-
-def payload_to_cfg(values: dict) -> Config:
-    """Build a Config from a dict of field-name -> value.
-
-    Tolerates string values from form posts. Empty string for n_steps -> None.
-    """
-    converters = {
-        "int": int,
-        "float": float,
-    }
-    out: dict = {}
-    field_kinds = {n: kind for (n, _l, kind, _mn, _mx, _s) in UI_FIELDS}
-    for k, v in values.items():
-        if k not in field_kinds:
-            # Unknown field; ignore (lets us add/remove without breaking the UI).
-            continue
-        kind = field_kinds[k]
-        if k in (
-            "learn",
-            "learn_messages",
-            "require_alive_neighbour",
-            "typed_votes",
-            "predator_prey_loss",
-            "goal_inheritance",
-            "goal_in_f",
-            "coexistence_pressure",
-        ):
-            out[k] = bool(int(v))
-        elif kind == "intornone":
-            if v is None or v == "" or v == "null":
-                out[k] = None
-            else:
-                out[k] = int(v)
-        elif kind == "int":
-            out[k] = int(v)
-        elif kind == "float":
-            out[k] = float(v)
-    # Fall back to defaults for anything not specified.
-    defaults = Config()
-    full = {f.name: getattr(defaults, f.name) for f in fields(Config)}
-    full.update(out)
-    return Config(**full)
-
+# UI_FIELDS / cfg_to_payload / payload_to_cfg live in ui_config.py so tests
+# can import them without constructing FastAPI or SimulationEngine.
 
 # FastAPI app
 

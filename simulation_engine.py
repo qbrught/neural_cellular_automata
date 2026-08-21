@@ -169,7 +169,7 @@ class SimulationEngine:
                         }
                     self._state = step_out.next_state
                     self._step_idx += 1
-                    frame = self._snapshot_locked(stats)
+                    frame = self._snapshot_locked(stats, include_env=False)
                 except Exception:
                     log.exception("Tick failed; pausing")
                     self._running = False
@@ -187,12 +187,18 @@ class SimulationEngine:
 
     # ----- snapshot serialisation -----
 
-    def _snapshot_locked(self, stats: dict | None) -> dict:
+    def _encode_map_u8(self, arr: np.ndarray, hi: float) -> str:
+        """Encode a (N,N) float map as uint8 base64, clipping to [0, hi]."""
+        hi = max(float(hi), 1e-6)
+        u8 = np.clip(np.rint(255.0 * np.clip(arr, 0.0, hi) / hi), 0, 255).astype(np.uint8)
+        return base64.b64encode(u8.tobytes()).decode("ascii")
+
+    def _snapshot_locked(self, stats: dict | None, *, include_env: bool = False) -> dict:
         """Build a JSON-able dict describing the current frame.
 
         Grid is encoded as a base64 string of (N*N) bytes:
           0 = dead, 1 = alive reproducer, 2 = alive eliminator.
-        That's ~13KB for a 100x100 grid -- well under any WS limit.
+        Env maps are sent only when include_env=True (reset / set_config).
         """
         s = self._state
         x = s.x.detach().cpu().numpy().astype(np.uint8)
@@ -208,7 +214,8 @@ class SimulationEngine:
         repro_alive = int(((g == GOAL_REPRODUCE) & alive).sum())
         elim_alive = int(((g == GOAL_ELIMINATE) & alive).sum())
 
-        return {
+        env_active = bool(self._cfg.environment_heterogeneous)
+        frame = {
             "type": "frame",
             "step": self._step_idx,
             "n_steps": self._cfg.n_steps,
@@ -227,7 +234,27 @@ class SimulationEngine:
                 None if stats is None or stats["loss_eliminate_mean"] != stats["loss_eliminate_mean"]
                 else stats["loss_eliminate_mean"]
             ),
+            "env_active": env_active,
         }
+        if include_env and env_active and self._env is not None:
+            env = self._env
+            kR = env.kappa_R.detach().cpu().numpy()
+            kE = env.kappa_E.detach().cpu().numpy()
+            eR = env.eta_scale_R.detach().cpu().numpy()
+            eE = env.eta_scale_E.detach().cpu().numpy()
+            occ = env.occupancy.detach().cpu().numpy()
+            kbar = 0.5 * (kR + kE)
+            ebar = 0.5 * (eR + eE)
+            eta_hi = max(float(self._cfg.env_eta_hi), 1e-6)
+            frame["env_eta_hi"] = eta_hi
+            frame["env_kappa_b64"] = self._encode_map_u8(kbar, 2.0)
+            frame["env_kappa_r_b64"] = self._encode_map_u8(kR, 2.0)
+            frame["env_kappa_e_b64"] = self._encode_map_u8(kE, 2.0)
+            frame["env_eta_b64"] = self._encode_map_u8(ebar, eta_hi)
+            frame["env_eta_r_b64"] = self._encode_map_u8(eR, eta_hi)
+            frame["env_eta_e_b64"] = self._encode_map_u8(eE, eta_hi)
+            frame["env_occ_b64"] = self._encode_map_u8(occ, 1.0)
+        return frame
 
     def _broadcast_frame(self, frame: dict) -> None:
         loop = self._main_loop
@@ -245,5 +272,5 @@ class SimulationEngine:
     def _broadcast_snapshot(self) -> None:
         """Send a current-state frame to all subscribers (e.g. after reset)."""
         with self._lock:
-            frame = self._snapshot_locked(None)
+            frame = self._snapshot_locked(None, include_env=True)
         self._broadcast_frame(frame)

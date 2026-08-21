@@ -148,6 +148,43 @@
   }
   .status-indicator.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
   .status-indicator.paused  { background: #facc15; }
+  details.group {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 12px 0;
+    background: var(--panel-2);
+  }
+  details.group summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .field.unused { opacity: 0.4; }
+  .field select {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 12px;
+    width: 100%;
+    grid-column: 1 / span 2;
+  }
+  #env-overlay-controls {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  #env-overlay-controls label { cursor: pointer; }
 </style>
 </head>
 <body>
@@ -199,6 +236,22 @@
       <span><span class="dot" style="background:var(--red)"></span>eliminator alive</span>
       <span><span class="dot" style="background:var(--dead);border:1px solid var(--border)"></span>dead</span>
     </div>
+    <div class="legend" id="env-legend" hidden>
+      <span><span class="dot" style="background:#3b82f6"></span>low κ</span>
+      <span><span class="dot" style="background:#22d3ee"></span>high κ</span>
+      <span><span class="dot" style="background:#f59e0b"></span>low η</span>
+      <span><span class="dot" style="background:#a3e635"></span>high η</span>
+      <span><span class="dot" style="background:#0a1220;border:1px solid var(--border)"></span>uninhabitable</span>
+    </div>
+    <div id="env-overlay-controls" hidden>
+      Overlay:
+      <label><input type="radio" name="env-overlay" value="off"> Off</label>
+      <label><input type="radio" name="env-overlay" value="conductivity"> Conductivity</label>
+      <label><input type="radio" name="env-overlay" value="learning"> Learning</label>
+      <label><input type="radio" name="env-overlay" value="occupancy"> Occupancy</label>
+      <label><input type="radio" name="env-overlay" value="combined"> Combined</label>
+      <label><input type="radio" name="env-overlay" value="type-split"> Type-split κ</label>
+    </div>
   </div>
 
   <!-- Sidebar: speed + config -->
@@ -230,60 +283,121 @@
 // auto-adapts to new fields without code changes.
 //----------------------------------------------------------------------------
 
-let CFG_META = [];     // [{name,label,kind,min,max,step}]
+let CFG_META = [];     // [{name,label,kind,min,max,step,group}]
 let CFG_VALUES = {};   // current values
+let CFG_CHOICES = {};  // from data.choices
+let PRESET_KNOBS = {}; // from data.preset_knobs
+let overlayMode = localStorage.getItem("ncsa.envOverlayMode") || "combined";
+let envCache = null;   // {kappa, kappaR, kappaE, eta, etaR, etaE, occ, N, etaHi}
 
 async function loadConfig() {
   const r = await fetch("/api/config");
   const data = await r.json();
   CFG_META = data.fields;
   CFG_VALUES = data.values;
+  CFG_CHOICES = data.choices || {};
+  PRESET_KNOBS = data.preset_knobs || {};
   renderConfig();
+}
+
+function makeField(f, v) {
+  const wrap = document.createElement("div");
+  wrap.className = "field";
+  wrap.dataset.field = f.name;
+
+  const header = document.createElement("div");
+  header.className = "field-header";
+  const lbl = document.createElement("label");
+  lbl.textContent = f.label;
+  lbl.htmlFor = `cfg-${f.name}`;
+  header.appendChild(lbl);
+  wrap.appendChild(header);
+
+  if (f.kind === "choice") {
+    const sel = document.createElement("select");
+    sel.id = `cfg-${f.name}`;
+    sel.dataset.field = f.name;
+    sel.dataset.kind = "choice";
+    for (const opt of (CFG_CHOICES[f.name] || [])) {
+      const o = document.createElement("option");
+      o.value = opt;
+      o.textContent = opt;
+      if (String(opt) === String(v)) o.selected = true;
+      sel.appendChild(o);
+    }
+    wrap.appendChild(sel);
+    return wrap;
+  }
+
+  const num = document.createElement("input");
+  num.type = (f.kind === "intornone") ? "text" : "number";
+  num.id = `cfg-${f.name}`;
+  num.value = (v === null || v === undefined) ? "" : v;
+  num.dataset.field = f.name;
+  num.dataset.kind = f.kind;
+  if (f.kind !== "intornone") {
+    num.min = f.min; num.max = f.max; num.step = f.step;
+  }
+  header.appendChild(num);
+
+  if (f.kind !== "intornone") {
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = f.min; slider.max = f.max; slider.step = f.step;
+    slider.value = (v === null || v === undefined) ? f.min : v;
+    slider.dataset.target = `cfg-${f.name}`;
+    slider.addEventListener("input", () => {
+      num.value = slider.value;
+    });
+    num.addEventListener("input", () => {
+      if (num.value !== "") slider.value = num.value;
+    });
+    wrap.appendChild(slider);
+  }
+  return wrap;
+}
+
+function applyPresetKnobGreyout() {
+  const sel = document.getElementById("cfg-env_preset");
+  const preset = sel ? sel.value : (CFG_VALUES.env_preset || "identity");
+  const knobs = new Set(PRESET_KNOBS[preset] || []);
+  for (const f of CFG_META) {
+    if (f.group !== "Experiment G") continue;
+    if (f.name === "environment_heterogeneous" || f.name === "env_preset" || f.name === "env_seed") continue;
+    const el = document.querySelector(`.field[data-field="${f.name}"]`);
+    if (!el) continue;
+    el.classList.toggle("unused", knobs.size > 0 && !knobs.has(f.name));
+  }
 }
 
 function renderConfig() {
   const root = document.getElementById("config-fields");
   root.innerHTML = "";
+  let gDetails = null;
   for (const f of CFG_META) {
     const v = CFG_VALUES[f.name];
-    const wrap = document.createElement("div");
-    wrap.className = "field";
-
-    const header = document.createElement("div");
-    header.className = "field-header";
-    const lbl = document.createElement("label");
-    lbl.textContent = f.label;
-    lbl.htmlFor = `cfg-${f.name}`;
-    header.appendChild(lbl);
-
-    const num = document.createElement("input");
-    num.type = (f.kind === "intornone") ? "text" : "number";
-    num.id = `cfg-${f.name}`;
-    num.value = (v === null || v === undefined) ? "" : v;
-    num.dataset.field = f.name;
-    num.dataset.kind = f.kind;
-    if (f.kind !== "intornone") {
-      num.min = f.min; num.max = f.max; num.step = f.step;
+    const wrap = makeField(f, v);
+    if (f.group === "Experiment G") {
+      if (!gDetails) {
+        gDetails = document.createElement("details");
+        gDetails.className = "group";
+        gDetails.id = "group-experiment-g";
+        gDetails.open = true;
+        const sum = document.createElement("summary");
+        sum.textContent = "Experiment G";
+        gDetails.appendChild(sum);
+        root.appendChild(gDetails);
+      }
+      gDetails.appendChild(wrap);
+    } else {
+      root.appendChild(wrap);
     }
-    wrap.appendChild(header);
-    header.appendChild(num);
-
-    if (f.kind !== "intornone") {
-      const slider = document.createElement("input");
-      slider.type = "range";
-      slider.min = f.min; slider.max = f.max; slider.step = f.step;
-      slider.value = (v === null || v === undefined) ? f.min : v;
-      slider.dataset.target = `cfg-${f.name}`;
-      slider.addEventListener("input", () => {
-        num.value = slider.value;
-      });
-      num.addEventListener("input", () => {
-        if (num.value !== "") slider.value = num.value;
-      });
-      wrap.appendChild(slider);
-    }
-    root.appendChild(wrap);
   }
+  const presetSel = document.getElementById("cfg-env_preset");
+  if (presetSel) {
+    presetSel.addEventListener("change", applyPresetKnobGreyout);
+  }
+  applyPresetKnobGreyout();
 }
 
 function collectConfig() {
@@ -318,12 +432,72 @@ const PALETTE_RGBA = new Uint8ClampedArray([
 let lastN = 0;
 let imageData = null;
 
+function decodeU8(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function decodeEnv(frame) {
+  return {
+    N: frame.N,
+    etaHi: frame.env_eta_hi || 1,
+    kappa: decodeU8(frame.env_kappa_b64),
+    kappaR: decodeU8(frame.env_kappa_r_b64),
+    kappaE: decodeU8(frame.env_kappa_e_b64),
+    eta: decodeU8(frame.env_eta_b64),
+    etaR: decodeU8(frame.env_eta_r_b64),
+    etaE: decodeU8(frame.env_eta_e_b64),
+    occ: decodeU8(frame.env_occ_b64),
+  };
+}
+
+function blend(buf, i, r, g, b, a) {
+  if (a <= 0) return;
+  const o = i * 4;
+  const ia = 1 - a;
+  buf[o]   = Math.round(r * a + buf[o]   * ia);
+  buf[o+1] = Math.round(g * a + buf[o+1] * ia);
+  buf[o+2] = Math.round(b * a + buf[o+2] * ia);
+}
+
+function compositeOverlay(buf, cache, mode) {
+  const n = cache.N * cache.N;
+  const etaHi = cache.etaHi;
+  for (let i = 0; i < n; i++) {
+    const occ = cache.occ[i] / 255;
+    if (occ < 0.5 && (mode === "occupancy" || mode === "combined")) {
+      buf[i*4] = 0x0a; buf[i*4+1] = 0x12; buf[i*4+2] = 0x20; buf[i*4+3] = 255;
+      continue;
+    }
+    if (mode === "occupancy") continue;
+    const kbar = 2 * cache.kappa[i] / 255;
+    const ebar = etaHi * cache.eta[i] / 255;
+    if (mode === "conductivity" || mode === "combined") {
+      if (kbar < 1) blend(buf, i, 0x3b, 0x82, 0xf6, 0.50 * (1 - Math.min(kbar, 1)));
+      if (kbar > 1) blend(buf, i, 0x22, 0xd3, 0xee, 0.30 * Math.min(kbar - 1, 1));
+    }
+    if (mode === "type-split") {
+      const kR = 2 * cache.kappaR[i] / 255;
+      const kE = 2 * cache.kappaE[i] / 255;
+      blend(buf, i, 0x22, 0xc5, 0x5e, 0.45 * (1 - Math.min(kR, 1)));
+      blend(buf, i, 0xe8, 0x79, 0xf9, 0.45 * (1 - Math.min(kE, 1)));
+    }
+    if (mode === "learning" || mode === "combined") {
+      if (ebar < 1) blend(buf, i, 0xf5, 0x9e, 0x0b, 0.40 * (1 - Math.min(ebar, 1)));
+      if (ebar > 1) {
+        const span = Math.max(etaHi - 1, 1e-6);
+        blend(buf, i, 0xa3, 0xe6, 0x35, 0.30 * Math.min((ebar - 1) / span, 1));
+      }
+    }
+  }
+}
+
 function renderFrame(frame) {
   const N = frame.N;
   // Decode base64 grid bytes.
-  const bin = atob(frame.grid_b64);
-  const cells = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) cells[i] = bin.charCodeAt(i);
+  const cells = decodeU8(frame.grid_b64);
 
   if (N !== lastN) {
     lastN = N;
@@ -345,6 +519,21 @@ function renderFrame(frame) {
     buf[o+1] = PALETTE_RGBA[k+1];
     buf[o+2] = PALETTE_RGBA[k+2];
     buf[o+3] = PALETTE_RGBA[k+3];
+  }
+  if (frame.env_kappa_b64) {
+    envCache = decodeEnv(frame);
+  }
+  const envLegend = document.getElementById("env-legend");
+  const envCtrls = document.getElementById("env-overlay-controls");
+  if (frame.env_active) {
+    envLegend.hidden = false;
+    envCtrls.hidden = false;
+    if (overlayMode !== "off" && envCache) {
+      compositeOverlay(buf, envCache, overlayMode);
+    }
+  } else {
+    envLegend.hidden = true;
+    envCtrls.hidden = true;
   }
   ctx.putImageData(imageData, 0, 0);
 
@@ -439,6 +628,15 @@ speedInput.addEventListener("change", () => {
 //----------------------------------------------------------------------------
 // Boot
 //----------------------------------------------------------------------------
+
+document.querySelectorAll('input[name="env-overlay"]').forEach((el) => {
+  if (el.value === overlayMode) el.checked = true;
+  el.addEventListener("change", () => {
+    if (!el.checked) return;
+    overlayMode = el.value;
+    localStorage.setItem("ncsa.envOverlayMode", overlayMode);
+  });
+});
 
 (async function init() {
   await loadConfig();
