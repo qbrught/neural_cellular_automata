@@ -100,6 +100,18 @@ def apply_version_flags(cfg: Config, version: str | None) -> Config:
     return get_version(key).apply(cfg)
 
 
+def _resample_env_seed_if_g(cfg: Config, rng: random.Random, version: str | None) -> Config:
+    """Under G / G_learn, draw a fresh env_seed. Do not add env knobs to GUIDABLE_FIELDS."""
+    if not version:
+        return cfg
+    from research.versions import get_version
+
+    spec = get_version(version)
+    if spec.environment_heterogeneous:
+        return replace(cfg, env_seed=_rand_seed(rng))
+    return cfg
+
+
 def resample_seed(
     base: Config,
     rng: random.Random,
@@ -128,7 +140,8 @@ def resample_seed(
     )
     cfg.learn = True
     cfg.__post_init__()
-    return apply_version_flags(cfg, version)
+    cfg = apply_version_flags(cfg, version)
+    return _resample_env_seed_if_g(cfg, rng, version)
 
 
 def sample_config(
@@ -143,7 +156,8 @@ def sample_config(
     """Draw a discovery Config. If ``base`` is set, mutate it instead of pure random."""
     if base is not None:
         cfg = _mutate_config(rng, base, n_steps=n_steps, N=N, device=device)
-        return apply_version_flags(cfg, version)
+        cfg = apply_version_flags(cfg, version)
+        return _resample_env_seed_if_g(cfg, rng, version)
 
     cfg = Config(
         N=N,
@@ -171,7 +185,8 @@ def sample_config(
     )
     cfg.learn = True
     cfg.__post_init__()
-    return apply_version_flags(cfg, version)
+    cfg = apply_version_flags(cfg, version)
+    return _resample_env_seed_if_g(cfg, rng, version)
 
 
 def apply_proposal(
@@ -228,7 +243,8 @@ def apply_proposal(
         cfg.__post_init__()
     except ValueError:
         return None
-    return apply_version_flags(cfg, version)
+    cfg = apply_version_flags(cfg, version)
+    return _resample_env_seed_if_g(cfg, rng, version)
 
 
 def heuristic_next_config(

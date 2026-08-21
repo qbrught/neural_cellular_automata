@@ -116,6 +116,10 @@ def write_report(
             f"`goal_in_f={v.goal_in_f}`, "
             f"`coexistence_pressure={getattr(v, 'coexistence_pressure', False)}`, "
             f"`coexistence_lambda={getattr(v, 'coexistence_lambda', 0.01)}`, "
+            f"`environment_heterogeneous={getattr(v, 'environment_heterogeneous', False)}`, "
+            f"`env_preset={getattr(v, 'env_preset', 'identity')}`, "
+            f"`env_eta_lo={getattr(v, 'env_eta_lo', 1.0)}`, "
+            f"`env_eta_hi={getattr(v, 'env_eta_hi', 1.0)}`, "
             f"`symmetrize_RE_weights={getattr(v, 'symmetrize_RE_weights', False)}`"
         )
         lines.append("")

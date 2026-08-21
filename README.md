@@ -78,7 +78,7 @@ python -m research.suite run --quick                        # smoke
 
 Open `research_results/<run>/REPORT.md`. See [`research/README.md`](research/README.md).
 
-Version flags (also in the UI): `typed_votes` (A), `predator_prey_loss` (B), `goal_inheritance` (C), `goal_in_f` (D).
+Version flags (also in the UI): `typed_votes` (A), `predator_prey_loss` (B), `goal_inheritance` (C), `goal_in_f` (D), `coexistence_pressure` (F), `environment_heterogeneous` (G).
 
 ## Run simulation stand-alone
 

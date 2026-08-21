@@ -144,6 +144,53 @@ def _display_grid(x: np.ndarray, goals: np.ndarray) -> np.ndarray:
     return out
 
 
+_PALETTE_RGB = np.array(
+    [[0x22, 0x22, 0x22], [0x3e, 0xc9, 0x6b], [0xe0, 0x49, 0x2f]],
+    dtype=np.float32,
+)
+
+
+def _blend(rgb: np.ndarray, color: tuple[int, int, int], alpha: np.ndarray) -> None:
+    """In-place alpha-over of a solid colour. alpha is (N,N) in [0,1]."""
+    a = alpha[..., None]
+    c = np.array(color, dtype=np.float32)
+    rgb *= (1.0 - a)
+    rgb += c * a
+
+
+def _composite_env_rgb(
+    display: np.ndarray,
+    occupancy: np.ndarray,
+    kappa_R: np.ndarray,
+    kappa_E: np.ndarray,
+    eta_R: np.ndarray | None = None,
+    eta_E: np.ndarray | None = None,
+    eta_hi: float = 1.0,
+) -> np.ndarray:
+    """Combined overlay (UI colours) as an (N,N,3) float RGB in 0..255."""
+    rgb = _PALETTE_RGB[display.astype(np.int64)].copy()
+    occ0 = occupancy < 0.5
+    rgb[occ0] = (0x0a, 0x12, 0x20)
+    kbar = 0.5 * (kappa_R + kappa_E)
+    live = ~occ0
+    low_k = np.clip(1.0 - np.clip(kbar, 0.0, 1.0), 0.0, 1.0) * live
+    _blend(rgb, (0x3b, 0x82, 0xf6), 0.50 * low_k)
+    high_k = np.clip(kbar - 1.0, 0.0, 1.0) * live
+    _blend(rgb, (0x22, 0xd3, 0xee), 0.30 * high_k)
+    if eta_R is not None and eta_E is not None:
+        ebar = 0.5 * (eta_R + eta_E)
+        low_e = np.clip(1.0 - np.clip(ebar, 0.0, 1.0), 0.0, 1.0) * live
+        _blend(rgb, (0xf5, 0x9e, 0x0b), 0.40 * low_e)
+        span = max(float(eta_hi) - 1.0, 1e-6)
+        high_e = np.clip((ebar - 1.0) / span, 0.0, 1.0) * live
+        _blend(rgb, (0xa3, 0xe6, 0x35), 0.30 * high_e)
+    return np.clip(rgb, 0, 255) / 255.0
+
+
+def _traj_has_env(traj) -> bool:
+    return "kappa_R" in traj.files and "occupancy" in traj.files
+
+
 def render_summary(traj_path: Path, out_path: Path | None = None) -> Path:
     """Render a 4-panel SVG: final grid, alive count, per-goal count, loss curves."""
     traj_path = Path(traj_path)
@@ -166,7 +213,20 @@ def render_summary(traj_path: Path, out_path: Path | None = None) -> Path:
     # --- Final grid ---
     ax = axes[0, 0]
     final_display = _display_grid(x[-1], goals_final)
-    ax.imshow(final_display, cmap=_CMAP, norm=_NORM, interpolation="nearest")
+    if _traj_has_env(traj):
+        eta_r = traj["eta_scale_R"] if "eta_scale_R" in traj.files else None
+        eta_e = traj["eta_scale_E"] if "eta_scale_E" in traj.files else None
+        rgb = _composite_env_rgb(
+            final_display,
+            traj["occupancy"],
+            traj["kappa_R"],
+            traj["kappa_E"],
+            eta_r,
+            eta_e,
+        )
+        ax.imshow(rgb, interpolation="nearest")
+    else:
+        ax.imshow(final_display, cmap=_CMAP, norm=_NORM, interpolation="nearest")
     ax.set_title(f"Final state (step {steps[-1]})")
     ax.set_xticks([])
     ax.set_yticks([])
@@ -176,6 +236,11 @@ def render_summary(traj_path: Path, out_path: Path | None = None) -> Path:
         plt.Rectangle((0, 0), 1, 1, color="#e0492f", label="alive eliminator"),
         plt.Rectangle((0, 0), 1, 1, color="#222222", label="dead"),
     ]
+    if _traj_has_env(traj):
+        legend_elements.extend([
+            plt.Rectangle((0, 0), 1, 1, color="#3b82f6", label="low κ"),
+            plt.Rectangle((0, 0), 1, 1, color="#0a1220", label="uninhabitable"),
+        ])
     ax.legend(handles=legend_elements, loc="upper right", fontsize=8,
               framealpha=0.9)
 
@@ -259,10 +324,20 @@ def render_animation(
     )
 
     g0 = goals_frames[0] if goals_frames is not None else goals_raw
-    im = ax_grid.imshow(
-        _display_grid(x[0], g0),
-        cmap=_CMAP, norm=_NORM, interpolation="nearest",
-    )
+    has_env = _traj_has_env(traj)
+    if has_env:
+        rgb0 = _composite_env_rgb(
+            _display_grid(x[0], g0),
+            traj["occupancy"], traj["kappa_R"], traj["kappa_E"],
+            traj["eta_scale_R"] if "eta_scale_R" in traj.files else None,
+            traj["eta_scale_E"] if "eta_scale_E" in traj.files else None,
+        )
+        im = ax_grid.imshow(rgb0, interpolation="nearest")
+    else:
+        im = ax_grid.imshow(
+            _display_grid(x[0], g0),
+            cmap=_CMAP, norm=_NORM, interpolation="nearest",
+        )
     ax_grid.set_xticks([])
     ax_grid.set_yticks([])
     title_grid = ax_grid.set_title(f"step {steps[0]}")
@@ -279,7 +354,16 @@ def render_animation(
 
     def update(frame_idx: int):
         g = goals_frames[frame_idx] if goals_frames is not None else goals_raw
-        im.set_data(_display_grid(x[frame_idx], g))
+        disp = _display_grid(x[frame_idx], g)
+        if has_env:
+            im.set_data(_composite_env_rgb(
+                disp,
+                traj["occupancy"], traj["kappa_R"], traj["kappa_E"],
+                traj["eta_scale_R"] if "eta_scale_R" in traj.files else None,
+                traj["eta_scale_E"] if "eta_scale_E" in traj.files else None,
+            ))
+        else:
+            im.set_data(disp)
         title_grid.set_text(f"step {steps[frame_idx]}")
         cursor.set_xdata([steps[frame_idx]])
         return im, title_grid, cursor

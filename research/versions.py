@@ -14,6 +14,8 @@ Roadmap (matches the planned A→D path, plus environment ablations):
   D         — goal-conditioned f on A+B+C                [implemented]
   E         — A + symmetric survival weights w2=w3       [implemented]
   F         — A + soft coexistence pressure              [implemented]
+  G         — A + frozen transfer blobs                  [implemented]
+  G_learn   — A + learning hotspot                       [implemented]
 """
 
 from __future__ import annotations
@@ -40,6 +42,18 @@ class VersionSpec:
     coexistence_pressure: bool = False
     coexistence_lambda: float = 0.01
     coexistence_delta: float = 1e-4
+    # Experiment G: frozen spatial environment overlay.
+    environment_heterogeneous: bool = False
+    env_preset: str = "identity"
+    env_n_blobs: int = 3
+    env_blob_radius: float = 0.15
+    env_kappa_lo: float = 0.0
+    env_kappa_hi: float = 1.0
+    env_eta_lo: float = 1.0   # identity; A–G must not inject a hotspot
+    env_eta_hi: float = 1.0
+    env_occupancy_blocks: bool = False
+    env_affect_R: bool = True
+    env_affect_E: bool = True
     # Environment ablation (not a dynamics-code path): force w2 = w3.
     # When True, both are set to the mean of the base config's w2 and w3
     # so average type-neighbour pressure is preserved.
@@ -65,6 +79,17 @@ class VersionSpec:
             coexistence_pressure=self.coexistence_pressure,
             coexistence_lambda=self.coexistence_lambda,
             coexistence_delta=self.coexistence_delta,
+            environment_heterogeneous=self.environment_heterogeneous,
+            env_preset=self.env_preset,
+            env_n_blobs=self.env_n_blobs,
+            env_blob_radius=self.env_blob_radius,
+            env_kappa_lo=self.env_kappa_lo,
+            env_kappa_hi=self.env_kappa_hi,
+            env_eta_lo=self.env_eta_lo,
+            env_eta_hi=self.env_eta_hi,
+            env_occupancy_blocks=self.env_occupancy_blocks,
+            env_affect_R=self.env_affect_R,
+            env_affect_E=self.env_affect_E,
         )
         if self.symmetrize_RE_weights:
             w = 0.5 * (float(out.w2) + float(out.w3))
@@ -81,6 +106,17 @@ class VersionSpec:
             f"coexistence_pressure={self.coexistence_pressure}\n"
             f"coexistence_lambda={self.coexistence_lambda}\n"
             f"coexistence_delta={self.coexistence_delta}\n"
+            f"environment_heterogeneous={self.environment_heterogeneous}\n"
+            f"env_preset={self.env_preset}\n"
+            f"env_n_blobs={self.env_n_blobs}\n"
+            f"env_blob_radius={self.env_blob_radius}\n"
+            f"env_kappa_lo={self.env_kappa_lo}\n"
+            f"env_kappa_hi={self.env_kappa_hi}\n"
+            f"env_eta_lo={self.env_eta_lo}\n"
+            f"env_eta_hi={self.env_eta_hi}\n"
+            f"env_occupancy_blocks={self.env_occupancy_blocks}\n"
+            f"env_affect_R={self.env_affect_R}\n"
+            f"env_affect_E={self.env_affect_E}\n"
             f"symmetrize_RE_weights={self.symmetrize_RE_weights}\n"
         )
 
@@ -253,6 +289,52 @@ VERSIONS: dict[str, VersionSpec] = {
             "without collapsing specialization if λ is small."
         ),
     ),
+    "G": VersionSpec(
+        id="G",
+        title="Step G — typed votes + transfer blobs",
+        description=(
+            "Builds on A (typed votes). Frozen spatial environment: "
+            "three hard transfer-dead disks (κ_lo=0) on the torus. "
+            "η_scale stays 1. Occupancy off (transfer-only). "
+            "env_seed is not pinned so suite --seeds share terrain."
+        ),
+        typed_votes=True,
+        environment_heterogeneous=True,
+        env_preset="blobs",
+        env_n_blobs=3,
+        env_blob_radius=0.15,
+        env_kappa_lo=0.0,
+        env_kappa_hi=1.0,
+        env_eta_lo=1.0,
+        env_eta_hi=1.0,
+        env_occupancy_blocks=False,
+        env_affect_R=True,
+        env_affect_E=True,
+        implemented=True,
+        hypothesis=(
+            "Spatial transfer barriers change Φ vs A by fragmenting "
+            "information flow without changing vote routing or loss shape."
+        ),
+    ),
+    "G_learn": VersionSpec(
+        id="G_learn",
+        title="Step G_learn — typed votes + learning hotspot",
+        description=(
+            "Builds on A. Center disk learns at η_hi=1; exterior at η_lo=0.25. "
+            "κ stays 1 (no transfer barrier). Occupancy off."
+        ),
+        typed_votes=True,
+        environment_heterogeneous=True,
+        env_preset="learning_hotspot",
+        env_eta_lo=0.25,
+        env_eta_hi=1.0,
+        implemented=True,
+        hypothesis=(
+            "Spatially varying learning rate concentrates adaptation in a "
+            "hotspot; Φ vs A may change via slower exterior SGD rather than "
+            "blocked messages."
+        ),
+    ),
 }
 
 # Display / ablation order for charts and reports (not alphabetical).
@@ -262,6 +344,8 @@ LADDER_ORDER: tuple[str, ...] = (
     "A",
     "E",
     "F",
+    "G",
+    "G_learn",
     "B",
     "C_only",
     "C",
@@ -292,6 +376,12 @@ _ALIASES: dict[str, str] = {
     "A_coexist": "F",
     "a_coexist": "F",
     "A+F": "F",
+    "A_env": "G",
+    "a_env": "G",
+    "A_hetero": "G",
+    "A+G": "G",
+    "A_env_learn": "G_learn",
+    "a_env_learn": "G_learn",
 }
 
 

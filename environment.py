@@ -79,9 +79,6 @@ PRESET_KNOBS: dict[str, tuple[str, ...]] = {
     "custom": ("env_regions", "env_occupancy_blocks", "env_affect_R", "env_affect_E"),
 }
 
-_PRESETS_NEEDING_RNG = frozenset({"blobs", "blobs_soft"})
-
-
 @dataclass
 class Environment:
     occupancy: Tensor       # (N, N) float {0,1}, requires_grad=False

@@ -15,6 +15,8 @@ Versions form an ablation path:
 | `D` | Goal-conditioned `f` on A+B+C | implemented |
 | `E` | Typed votes + symmetric \(w_2=w_3\) (env ablation) | implemented |
 | `F` | Typed votes + soft coexistence pressure (λ barrier) | implemented |
+| `G` | Typed votes + frozen transfer blobs (`A_env`) | implemented |
+| `G_learn` | Typed votes + learning hotspot (`A_env_learn`) | implemented |
 
 Every suite run produces the same artifact layout so you can drop results into the paper and fill `NOTES.md` with manual UI observations.
 
@@ -88,6 +90,8 @@ research_results/<run_name>/
 
 Open `INDEX.md` (multi) or `REPORT.md` (single) after a run.
 
+`--versions all` includes **G** and **G_learn** (two extra arms). `--quick` stays `original,A`. G is transfer-only blobs; G_learn is a center learning hotspot. `env_seed` is not pinned, so suite `--seeds` share terrain. Overlay lives on `simulate.run` + `visualise.render_summary`, not on suite `panel.png`.
+
 ## What is measured
 
 | Metric | Paper interpretation |
@@ -120,6 +124,7 @@ python server.py
 | `goal_inheritance` | Goal inherit C | B=0, C=1 (births adopt majority neighbour goal) |
 | `goal_in_f` | Goal in f D | (reserved) |
 | `learn_messages` | Learn messages | off=Path-1 (message head dead); on=one-hop live M |
+| `environment_heterogeneous` | Heterogeneous env G | overlay: transfer blobs / learning hotspot / occupancy |
 
 **Workflow for writing:**
 
