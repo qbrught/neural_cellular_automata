@@ -36,6 +36,74 @@ You both (1) judge if the run is worth saving and (2) propose the NEXT config
 to try, based on this run and recent history. Prefer small directed steps when
 recovering from extinction/static, larger jumps only if stuck."""
 
+# Extra brief when discovering under Step E (typed votes + symmetric w2=w3).
+SYSTEM_BRIEF_E = """
+=== STEP E / SYMMETRY NULL (this catalog) ===
+typed_votes ON. Survival weights are type-symmetric: w2 = w3. Reproducer and
+eliminator neighbour counts enter the survival logit with equal weight, so
+class divergence cannot be blamed on fixed physics favoring one type.
+
+What to SEEK and SAVE under E:
+- Two types with distinct temporal curves (anti-correlated, delayed, or
+  role-swapping) despite equal neighbour weights
+- Spatial domains, fronts, or clustered niches that persist
+- Learning-driven phase change that is not just one type dying
+- Residual structure vs the density-tracking null (repro ≠ scaled total)
+
+What to REJECT under E (the scientific null):
+- Density-tracking: green and red alive curves are scaled copies of total
+- Saturated mixed slab with no spatial or temporal structure
+- Unstructured flicker
+- Immediate total extinction with no mixed transient
+
+Learning-driven competitive exclusion AFTER a mixed/saturated transient
+(one type declines, the other holds) is a hit, not a reject.
+"""
+
+# Extra brief when only the IC seed changes (frozen physics).
+SYSTEM_BRIEF_SEED_ONLY = """
+=== SEED SEARCH — SEED BANK (frozen physics) ===
+Survival weights, eta, init density, and u_seed are FIXED. Each trial is a
+new random initial condition (seed) on the same rule.
+
+Do NOT propose weight changes. Search continues by drawing a new seed.
+"""
+
+# Original + w2=w3: fair IC bank for later flag ablations. Do NOT filter for
+# class divergence — that would re-select the A/E attrition motif.
+SYSTEM_BRIEF_ORIGINAL_SEEDS = """
+=== ORIGINAL BASELINE SEED BANK (indiscriminate votes, w2=w3) ===
+typed_votes OFF. Survival weights are type-symmetric (w2=w3). This is the
+density-tracking null: no typed routing and no R/E neighbour-weight bias.
+
+The catalog is a FAIR set of initial conditions for later A/B/C/D/E/F
+comparisons. Do NOT prefer seeds where one type wipes the other — that
+biases the ablation toward A's attrition attractor.
+
+SAVE (interesting=true, novel=true, worth_saving=true) when the run is viable:
+- Both types still present late (mixed slab, slow co-decay, mild imbalance)
+- Spatial texture or delayed change even if green/red track total density
+- Oscillations / waves / persistent mixed life
+Mixed density-tracking ICs ARE wanted. Mention late mix vs wipe in the one_liner.
+
+REJECT:
+- Total extinction (whole grid dead early and stays dead)
+- Immediate empty freeze
+Do NOT reject a seed because green and red track density. That is the baseline.
+Do NOT reject mixed full-alive slabs unless they are totally static AND you
+already have several of that exact story — still prefer them over exclusion.
+
+Prefer diversity: mix of (persistent mix, slow decay, mild spatial structure).
+Avoid filling the catalog with 20 copies of "reproducers exclude eliminators".
+"""
+
+# Extra brief when only the IC seed changes under E (typed votes + w2=w3).
+SYSTEM_BRIEF_E_SEEDS = """
+=== E SEED BANK (typed votes, w2=w3) ===
+Save independent ICs that beat the density-tracking null under typed votes.
+Same motif on a new seed is still worth saving. Reject extinction / mixed slabs.
+"""
+
 # Extra brief when discovering under Step C (goal inheritance / colonization).
 SYSTEM_BRIEF_C = """
 === STEP C REGIME (this catalog) ===
@@ -197,28 +265,61 @@ def _is_inheritance_version(version: str | None) -> bool:
     return v in ("c", "c_only", "inheritance", "inherit_only")
 
 
-def _version_criteria(version: str | None) -> str:
-    if not _is_inheritance_version(version):
-        return ""
+def _is_symmetry_null_version(version: str | None) -> bool:
+    if not version:
+        return False
+    v = version.strip().lower().replace("-", "_")
+    return v in ("e", "a_sym")
+
+
+def _is_original_version(version: str | None) -> bool:
+    if not version:
+        return False
+    return version.strip().lower() == "original"
+
+
+def _version_criteria(version: str | None, seed_only: bool = False) -> str:
     extra = ""
-    if version and version.strip().lower().replace("-", "_") in (
-        "c_only", "inheritance", "inherit_only",
-    ):
-        extra = (
-            " This is C_only: inheritance ON but typed votes OFF and "
-            "predator–prey loss OFF (original vote/loss physics + colonization)."
-        )
-    return (
-        "Under goal inheritance: interesting means contested colonization "
-        "(both types late, moving fronts, type-fraction dynamics). "
-        "Reject fast monoculture wipeouts and all-alive single-color slabs."
-        + extra
-    )
-
-
-def _system_brief(version: str | None) -> str:
     if _is_inheritance_version(version):
-        brief = SYSTEM_BRIEF + "\n" + SYSTEM_BRIEF_C
+        extra = (
+            "Under goal inheritance: interesting means contested colonization "
+            "(both types late, moving fronts, type-fraction dynamics). "
+            "Reject fast monoculture wipeouts and all-alive single-color slabs."
+        )
+        if version and version.strip().lower().replace("-", "_") in (
+            "c_only", "inheritance", "inherit_only",
+        ):
+            extra += (
+                " This is C_only: inheritance ON but typed votes OFF and "
+                "predator–prey loss OFF (original vote/loss physics + colonization)."
+            )
+    elif _is_symmetry_null_version(version):
+        extra = (
+            "Under symmetric w2=w3: interesting means type dynamics that beat "
+            "the density-tracking null (distinct curves, spatial domains). "
+            "Reject scaled-copy populations, one-type wipeouts, and mixed slabs."
+        )
+    if seed_only and _is_original_version(version):
+        extra += (
+            " Original+w2=w3 seed bank: save viable mixed ICs (both types late). "
+            "Density-tracking mixed life is a SAVE. Competitive exclusion is "
+            "allowed but do not fill the catalog with only that motif. "
+            "Reject total extinction."
+        )
+    elif seed_only:
+        extra += (
+            " Seed-bank mode: save every non-null IC even if the motif matches "
+            "a prior catalog entry. Set novel=true unless the run is a saturated "
+            "slab, density-tracking null, or extinction. One-liners should note "
+            "who leads and roughly when divergence starts."
+        )
+    return extra
+
+
+def _system_brief(version: str | None, seed_only: bool = False) -> str:
+    brief = SYSTEM_BRIEF
+    if _is_inheritance_version(version):
+        brief = brief + "\n" + SYSTEM_BRIEF_C
         if version and version.strip().lower().replace("-", "_") in (
             "c_only", "inheritance", "inherit_only",
         ):
@@ -229,8 +330,15 @@ def _system_brief(version: str | None) -> str:
                 "Only colonization (birth goal adoption) is new. Seek patterns "
                 "driven by inheritance alone, not typed warfare.\n"
             )
-        return brief
-    return SYSTEM_BRIEF
+    if _is_symmetry_null_version(version):
+        brief = brief + "\n" + SYSTEM_BRIEF_E
+    if seed_only:
+        brief = brief + "\n" + SYSTEM_BRIEF_SEED_ONLY
+        if _is_original_version(version):
+            brief = brief + "\n" + SYSTEM_BRIEF_ORIGINAL_SEEDS
+        elif _is_symmetry_null_version(version):
+            brief = brief + "\n" + SYSTEM_BRIEF_E_SEEDS
+    return brief
 
 
 def _build_user_text(
@@ -241,13 +349,29 @@ def _build_user_text(
     prefilter_reason: str | None,
     history_lines: list[str],
     version: str | None = None,
+    seed_only: bool = False,
 ) -> str:
     keys = ", ".join(GUIDABLE_FIELDS)
     instructions = JUDGE_INSTRUCTIONS.format(
         keys=keys,
         ranges=_ranges_block(),
-        version_criteria=_version_criteria(version),
+        version_criteria=_version_criteria(version, seed_only=seed_only),
     )
+    if seed_only:
+        if _is_original_version(version):
+            instructions += (
+                "\n\nORIGINAL BASELINE SEED-BANK: next_config ignored. "
+                "worth_saving=true for viable mixed ICs (both types persist). "
+                "Density-tracking is a SAVE, not a reject. Prefer diversity "
+                "over 20 copies of competitive exclusion.\n"
+            )
+        else:
+            instructions += (
+                "\n\nSEED-BANK MODE: next_config will be ignored. Return an empty "
+                "next_config. worth_saving=true for every non-null seed, including "
+                "repeats of a known motif on a new seed. novel=false only for the "
+                "density-tracking / saturated-slab / extinction null.\n"
+            )
 
     if catalog_one_liners:
         prior = "\n".join(f"- {line}" for line in catalog_one_liners)
@@ -261,6 +385,8 @@ def _build_user_text(
 
     pf = prefilter_reason or "passed (or not applied)"
     ver = f"Paper version under search: {version}\n\n" if version else ""
+    if seed_only:
+        ver += "Mode: seed-only (weights frozen; only seed changes).\n\n"
 
     return (
         f"{instructions}\n\n"
@@ -285,6 +411,7 @@ def judge_trial(
     max_retries: int = 2,
     temperature: float = 0.35,
     version: str | None = None,
+    seed_only: bool = False,
 ) -> JudgeResult:
     """Call Gemini on summary.png + config/history; return judgment + next_config."""
     summary_png = Path(summary_png)
@@ -314,9 +441,10 @@ def judge_trial(
         prefilter_reason=prefilter_reason,
         history_lines=history_lines or [],
         version=version,
+        seed_only=seed_only,
     )
     last_err: str | None = None
-    system = _system_brief(version)
+    system = _system_brief(version, seed_only=seed_only)
 
     for attempt in range(max_retries + 1):
         try:

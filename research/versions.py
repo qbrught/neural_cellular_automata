@@ -255,6 +255,29 @@ VERSIONS: dict[str, VersionSpec] = {
     ),
 }
 
+# Display / ablation order for charts and reports (not alphabetical).
+# E sits next to A so the w2=w3 identity check is obvious on a symmetric base.
+LADDER_ORDER: tuple[str, ...] = (
+    "original",
+    "A",
+    "E",
+    "F",
+    "B",
+    "C_only",
+    "C",
+    "D_fixed",
+    "D",
+)
+
+
+def ladder_sort_key(version_id: str) -> tuple[int, str]:
+    """Sort key: canonical ladder, then alphabetical fallback."""
+    try:
+        return (LADDER_ORDER.index(version_id), version_id)
+    except ValueError:
+        return (len(LADDER_ORDER), version_id)
+
+
 # Aliases for CLI convenience.
 _ALIASES: dict[str, str] = {
     "c_only": "C_only",

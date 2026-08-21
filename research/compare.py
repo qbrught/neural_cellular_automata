@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 
 from research.metrics import TABLE_COLUMNS
+from research.versions import ladder_sort_key
 
 
 def aggregate_by_version(results: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
@@ -90,7 +91,7 @@ def markdown_comparison_table(
         "| " + " | ".join(headers) + " |",
         "| " + " | ".join(["---"] * len(headers)) + " |",
     ]
-    for (cid, vid) in sorted(by_key):
+    for (cid, vid) in sorted(by_key, key=lambda kv: (kv[0], ladder_sort_key(kv[1]))):
         rows = by_key[(cid, vid)]
         cells = ([cid, vid, str(len(rows))] if include_config else [vid, str(len(rows))])
         for key, _h, fmt in TABLE_COLUMNS:
@@ -146,7 +147,7 @@ def delta_table(results: list[dict[str, Any]], baseline: str = "original") -> st
         "| " + " | ".join(["---"] * len(headers)) + " |",
     ]
     base = {k: mean_key(baseline, k) for k, _, _ in keys}
-    for vid in sorted(by_v):
+    for vid in sorted(by_v, key=ladder_sort_key):
         if vid == baseline:
             continue
         cells = [f"{vid} − {baseline}"]

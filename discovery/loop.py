@@ -21,6 +21,7 @@ from discovery.sample import (
     apply_proposal,
     config_knobs,
     heuristic_next_config,
+    resample_seed,
     sample_config,
 )
 
@@ -56,6 +57,10 @@ class LoopConfig:
     history_len: int = 6
     # Paper version flags forced on every trial (e.g. "C" → A+B+goal_inheritance).
     version: str | None = None
+    # Frozen physics for seed search (weights/init from this config).
+    base_config: Config | None = None
+    seed_only: bool = False
+    resample_u_seed: bool = False
 
 
 @dataclass
@@ -234,11 +239,28 @@ def _metrics_summary(metrics: dict[str, np.ndarray], N: int) -> str:
     )
 
 
+def _frozen_base(loop_cfg: LoopConfig) -> Config:
+    """Physics template for seed-only search (must already be loaded)."""
+    if loop_cfg.base_config is None:
+        raise ValueError("seed_only requires LoopConfig.base_config")
+    return loop_cfg.base_config
+
+
 def _random_or_mutate(
     rng: random.Random,
     catalog: Catalog,
     loop_cfg: LoopConfig,
 ) -> Config:
+    if loop_cfg.seed_only:
+        return resample_seed(
+            _frozen_base(loop_cfg),
+            rng,
+            n_steps=loop_cfg.n_steps,
+            N=loop_cfg.N,
+            device=loop_cfg.device,
+            version=loop_cfg.version,
+            resample_u_seed=loop_cfg.resample_u_seed,
+        )
     base: Config | None = None
     if (
         loop_cfg.mutate_prob > 0
@@ -266,7 +288,11 @@ def _choose_config(
     pending: Config | None,
     stats: LoopStats,
 ) -> tuple[Config, str]:
-    """Return (config, source) where source is guided|explore|random."""
+    """Return (config, source) where source is guided|explore|random|seed."""
+    if loop_cfg.seed_only:
+        stats.random_steps += 1
+        return _random_or_mutate(rng, catalog, loop_cfg), "seed"
+
     # Occasional pure explore even when we have guidance.
     if pending is not None and loop_cfg.guided and rng.random() < loop_cfg.explore_prob:
         stats.explore_steps += 1
@@ -328,11 +354,20 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
             except Exception:  # noqa: BLE001
                 flag_block = ""
                 title = loop_cfg.version
+            extra = ""
+            if loop_cfg.seed_only:
+                extra = (
+                    "\n**Seed search:** survival weights and init knobs are frozen "
+                    "(new `seed` each trial"
+                    + (", new `u_seed` too" if loop_cfg.resample_u_seed else ", `u_seed` fixed")
+                    + ").\n"
+                )
             readme.write_text(
                 f"# Discoveries for paper version **{loop_cfg.version}**\n\n"
                 f"**{title}**\n\n"
                 f"All trials force flags via `research.versions`:\n\n"
                 f"```\n{flag_block}```\n"
+                f"{extra}"
                 f"- Saved folders are named `disc_{loop_cfg.version}_####`\n"
                 f"- Each save has `VERSION.txt`, labeled one-liners, and "
                 f"matching flags in `config.json`\n",
@@ -348,6 +383,14 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
     print(f"  n_steps={loop_cfg.n_steps}  N={loop_cfg.N}  device={loop_cfg.device}")
     print(f"  model={loop_cfg.model}  dry_run={loop_cfg.dry_run}")
     print(f"  guided={loop_cfg.guided}  explore_prob={loop_cfg.explore_prob}")
+    print(f"  seed_only={loop_cfg.seed_only}  resample_u_seed={loop_cfg.resample_u_seed}")
+    if loop_cfg.base_config is not None:
+        b = loop_cfg.base_config
+        print(
+            f"  base physics: w0={b.w0} w1={b.w1} w2={b.w2} w3={b.w3} "
+            f"w4h={b.w4_help} w4m={b.w4_harm} w5={b.w5} "
+            f"p0={b.init_alive_prob} u_seed={b.u_seed}"
+        )
     print(f"  sampler_seed={sampler_seed}"
           f"{'' if loop_cfg.sampler_seed is not None else ' (auto)'}")
     print()
@@ -380,6 +423,11 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
                 f"version {loop_cfg.version}: expected "
                 f"goal_inheritance={spec.goal_inheritance}"
             )
+            if spec.symmetrize_RE_weights:
+                assert cfg.w2 == cfg.w3, (
+                    f"version {loop_cfg.version}: expected w2=w3, "
+                    f"got w2={cfg.w2} w3={cfg.w3}"
+                )
 
         trial_dir = trials_root / f"trial_{cycle:06d}"
         if trial_dir.exists():
@@ -413,7 +461,7 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
                 outcome = "prefilter_pass_dry_run"
                 print(f"[cycle {cycle}] prefilter PASS (dry-run, skipping VLM)")
 
-            if loop_cfg.guided:
+            if loop_cfg.guided and not loop_cfg.seed_only:
                 pending_next = heuristic_next_config(
                     cfg,
                     outcome=outcome,
@@ -474,6 +522,7 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
             history_lines=hist_lines,
             model=loop_cfg.model,
             version=loop_cfg.version,
+            seed_only=loop_cfg.seed_only,
         )
 
         if result.error:
@@ -483,7 +532,7 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
                 result.error + "\n", encoding="utf-8"
             )
             # Fallback heuristic so the chain doesn't die.
-            if loop_cfg.guided:
+            if loop_cfg.guided and not loop_cfg.seed_only:
                 outcome = f"vlm_error;prefilter={pf.reason if not pf.passed else 'pass'}"
                 pending_next = heuristic_next_config(
                     cfg,
@@ -515,7 +564,8 @@ def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
             )
 
         # Build next config from VLM proposal (clamped).
-        if loop_cfg.guided:
+        # Seed-only search ignores weight proposals so the null stays frozen.
+        if loop_cfg.guided and not loop_cfg.seed_only:
             proposed = apply_proposal(
                 cfg,
                 result.next_config,

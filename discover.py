@@ -5,6 +5,9 @@ Usage:
     python discover.py --version C --max-cycles 30 --target-discoveries 5
     python discover.py --max-cycles 10 --dry-run          # heuristic-guided, no API
     python discover.py --no-guided --max-cycles 20        # pure random search
+    python discover.py --version E --seed-only \\
+        --base-config research/configs/benchmark_sym_w.json \\
+        --target-discoveries 15 --max-cycles 400
 """
 
 from __future__ import annotations
@@ -47,12 +50,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=(
             "original", "A", "B",
             "C_only", "c_only", "inheritance",
-            "C", "D",
+            "C", "D_fixed", "D", "E", "F",
+            "A_sym", "a_sym",
         ),
         help=(
             "Force paper version flags on every trial via research.versions. "
             "C_only = goal_inheritance alone (no A/B). "
             "C = A + B + goal_inheritance (full stack). "
+            "E / A_sym = typed votes + symmetric w2=w3. "
             "Saves to disc_<V>_#### under discoveries_<V>/ by default."
         ),
     )
@@ -119,6 +124,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--base-config",
+        type=Path,
+        default=None,
+        help=(
+            "JSON Config whose physics is cloned each trial. Required with "
+            "--seed-only (typical: research/configs/benchmark_sym_w.json)."
+        ),
+    )
+    p.add_argument(
+        "--seed-only",
+        action="store_true",
+        help=(
+            "Do not sample or mutate survival weights. Each trial only draws a "
+            "new seed on --base-config (w2=w3 stays frozen if the base is "
+            "symmetric). Implies --no-guided so the VLM cannot walk off the null."
+        ),
+    )
+    p.add_argument(
+        "--resample-u-seed",
+        action="store_true",
+        help="With --seed-only, also resample u_seed (default: keep base u_seed).",
+    )
+    p.add_argument(
         "--keep-rejects",
         action="store_true",
         help="Keep trial dirs under discoveries/trials/ even when rejected.",
@@ -161,6 +189,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.n_steps <= 0 or args.N <= 0:
         print("error: --n-steps and --N must be positive", file=sys.stderr)
         return 2
+    if args.seed_only and args.base_config is None:
+        print("error: --seed-only requires --base-config", file=sys.stderr)
+        return 2
+    if args.resample_u_seed and not args.seed_only:
+        print("error: --resample-u-seed requires --seed-only", file=sys.stderr)
+        return 2
     # Canonical version id (aliases like "inheritance" → C_only).
     version_id = args.version
     if version_id is not None:
@@ -168,8 +202,32 @@ def main(argv: list[str] | None = None) -> int:
 
         version_id = get_version(version_id).id
 
+    base_cfg = None
+    if args.base_config is not None:
+        from config import Config
+
+        if not args.base_config.is_file():
+            print(f"error: --base-config not found: {args.base_config}", file=sys.stderr)
+            return 2
+        base_cfg = Config.load(args.base_config)
+        base_cfg.learn = True
+        base_cfg.save_state_vectors = False
+        base_cfg.N = args.N
+        base_cfg.n_steps = args.n_steps
+        base_cfg.device = args.device
+        if version_id is not None:
+            from research.versions import get_version
+
+            base_cfg = get_version(version_id).apply(base_cfg)
+        base_cfg.__post_init__()
+
+    # Seed search must not let the VLM retune weights (would leave the null).
+    guided = False if args.seed_only else args.guided
+
     if args.output_root is None:
-        if version_id:
+        if version_id and args.seed_only:
+            args.output_root = Path(f"discoveries_{version_id}_seeds")
+        elif version_id:
             args.output_root = Path(f"discoveries_{version_id}")
         else:
             args.output_root = Path("discoveries")
@@ -195,9 +253,12 @@ def main(argv: list[str] | None = None) -> int:
         keep_rejects=args.keep_rejects,
         dry_run=args.dry_run,
         verbose_sim=args.verbose_sim,
-        guided=args.guided,
+        guided=guided,
         explore_prob=args.explore_prob,
         version=version_id,
+        base_config=base_cfg,
+        seed_only=args.seed_only,
+        resample_u_seed=args.resample_u_seed,
     )
     run_discovery(loop_cfg)
     return 0

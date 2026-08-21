@@ -89,6 +89,7 @@ def apply_version_flags(cfg: Config, version: str | None) -> Config:
     """Force paper-version flags onto a sampled config (A/B/C/original).
 
     Weights and init knobs are left unchanged; only mechanism flags are set.
+    Version E also symmetrizes w2=w3 to their mean.
     """
     if not version:
         return cfg
@@ -97,6 +98,37 @@ def apply_version_flags(cfg: Config, version: str | None) -> Config:
     from research.versions import get_version
 
     return get_version(key).apply(cfg)
+
+
+def resample_seed(
+    base: Config,
+    rng: random.Random,
+    *,
+    n_steps: int,
+    N: int,
+    device: str,
+    version: str | None = None,
+    resample_u_seed: bool = False,
+) -> Config:
+    """Clone ``base`` physics and draw a new IC seed (optionally a new ``u_seed``).
+
+    Survival weights, learning rate, init density, and version flags stay
+    frozen. Used for seed search in a fixed null (e.g. baseline w2=w3).
+    """
+    cfg = replace(
+        base,
+        N=N,
+        n_steps=n_steps,
+        device=device,
+        learn=True,
+        save_state_vectors=False,
+        run_name="",
+        seed=_rand_seed(rng),
+        u_seed=_rand_seed(rng) if resample_u_seed else base.u_seed,
+    )
+    cfg.learn = True
+    cfg.__post_init__()
+    return apply_version_flags(cfg, version)
 
 
 def sample_config(

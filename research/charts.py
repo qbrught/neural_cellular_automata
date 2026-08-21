@@ -7,6 +7,8 @@ from typing import Any
 
 import numpy as np
 
+from research.versions import ladder_sort_key
+
 # Headless-safe backend
 import matplotlib
 
@@ -124,7 +126,8 @@ def plot_version_overlay(
 
     fig, ax = plt.subplots(figsize=(9, 4.5))
     colors = plt.cm.tab10.colors
-    for i, (vid, curves) in enumerate(sorted(by_v.items())):
+    for i, vid in enumerate(sorted(by_v, key=ladder_sort_key)):
+        curves = by_v[vid]
         # Align to min length
         L = min(len(c) for c in curves)
         stack = np.stack([c[:L] for c in curves], axis=0)
@@ -215,6 +218,27 @@ def plot_comparison_dashboard(
     _ov("death_gap", "14_death_rate_gap.png", "death_rate_cross_minus_same",
         "cross − same", "Typed death gap (cross − same; >0 ⇒ cross more lethal)")
 
+    def _density_residual_frac(s):
+        ra = np.asarray(s["reproducer_alive"], float)
+        ea = np.asarray(s["eliminator_alive"], float)
+        alive = np.asarray(s["alive"], float)
+        if "goal_frac_repro" in s and len(s["goal_frac_repro"]):
+            g0 = float(np.asarray(s["goal_frac_repro"], float)[0])
+        else:
+            tot0 = ra[0] + ea[0]
+            g0 = float(ra[0] / tot0) if tot0 > 0 else 0.5
+        pred = g0 * (ra + ea)
+        return np.abs(ra - pred) / (alive + 1e-9)
+
+    _ov(
+        "phi_residual",
+        "19_phi_residual.png",
+        "alive",
+        r"$|r_t - f_0 a_t| / (a_t+\varepsilon)$",
+        "Class-divergence residual vs density-tracking null",
+        series_fn=_density_residual_frac,
+    )
+
     # Step C: goal fraction over time (all cells).
     has_goal_frac = any(
         "goal_frac_repro" in r.get("series", {}) for r in results
@@ -233,7 +257,7 @@ def plot_comparison_dashboard(
     for r in results:
         by_v.setdefault(r["version_id"], []).append(r["summary"]["corr_ra_ea"])
     fig, ax = plt.subplots(figsize=(6, 4))
-    vids = sorted(by_v)
+    vids = sorted(by_v, key=ladder_sort_key)
     means = [np.nanmean(by_v[v]) for v in vids]
     stds = [np.nanstd(by_v[v]) if len(by_v[v]) > 1 else 0.0 for v in vids]
     ax.bar(vids, means, yerr=stds, color="#4c72b0", alpha=0.85, capsize=4)
@@ -256,7 +280,7 @@ def plot_comparison_dashboard(
         by_gap.setdefault(r["version_id"], []).append(g)
     if by_gap:
         fig, ax = plt.subplots(figsize=(6, 4))
-        vids = sorted(by_gap)
+        vids = sorted(by_gap, key=ladder_sort_key)
         means = [np.nanmean(by_gap[v]) for v in vids]
         stds = [np.nanstd(by_gap[v]) if len(by_gap[v]) > 1 else 0.0 for v in vids]
         ax.bar(vids, means, yerr=stds, color="#c44e52", alpha=0.85, capsize=4)
@@ -270,5 +294,49 @@ def plot_comparison_dashboard(
         paths["death_gap_bar"] = out_dir / "16_death_gap_bar.png"
         fig.savefig(paths["death_gap_bar"])
         plt.close(fig)
+
+    def _phi_bar(summary_key: str, fname: str, ylabel: str, title: str, path_key: str) -> None:
+        by_phi: dict[str, list[float]] = {}
+        for r in results:
+            by_phi.setdefault(r["version_id"], []).append(
+                float(r["summary"].get(summary_key, float("nan")))
+            )
+        if not by_phi:
+            return
+        fig, ax = plt.subplots(figsize=(8, 4.2))
+        vids = sorted(by_phi, key=ladder_sort_key)
+        means = [np.nanmean(by_phi[v]) for v in vids]
+        stds = [np.nanstd(by_phi[v]) if len(by_phi[v]) > 1 else 0.0 for v in vids]
+        ax.bar(vids, means, yerr=stds, color="#4c72b0", alpha=0.85, capsize=4)
+        ax.set_ylabel(ylabel)
+        full = f"{title_prefix}: {title}" if title_prefix else title
+        ax.set_title(full)
+        ax.tick_params(axis="x", rotation=30)
+        fig.tight_layout()
+        paths[path_key] = out_dir / fname
+        fig.savefig(paths[path_key])
+        plt.close(fig)
+
+    _phi_bar(
+        "phi_class",
+        "20_phi_bar.png",
+        r"$\Phi$ (mean residual frac)",
+        "Class divergence Φ vs density-tracking null",
+        "phi_bar",
+    )
+    _phi_bar(
+        "phi_class_late",
+        "21_phi_late_bar.png",
+        r"$\Phi_{\mathrm{late}}$",
+        "Late class divergence Φ_late vs density-tracking null",
+        "phi_late_bar",
+    )
+    _phi_bar(
+        "mean_abs_residual_ra",
+        "22_ra_residual_bar.png",
+        r"mean $|r_t - f_0 a_t|$",
+        "Absolute ra residual vs density-tracking prediction",
+        "ra_residual_bar",
+    )
 
     return paths

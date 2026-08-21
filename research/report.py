@@ -128,10 +128,22 @@ def write_report(
     lines.append("")
     lines.append(delta_table(results, baseline="original"))
     lines.append("")
+    present = {r["version_id"] for r in results}
+    if "E" in present and len(present) > 1:
+        lines.append("### Deltas vs `E` (symmetric typed-vote baseline, w2=w3)")
+        lines.append("")
+        lines.append(
+            "Version E is typed votes with type-symmetric survival weights. "
+            "Deltas here ask what each flag adds **beyond** that null, not "
+            "beyond indiscriminate votes."
+        )
+        lines.append("")
+        lines.append(delta_table(results, baseline="E"))
+        lines.append("")
     # Also show deltas vs first version if original missing (e.g. A,B,C only)
-    if not any(r["version_id"] == "original" for r in results) and versions:
+    if "original" not in present and versions:
         base_v = versions[0].id
-        if any(r["version_id"] == base_v for r in results) and len(versions) > 1:
+        if base_v in present and len(versions) > 1:
             lines.append(f"### Deltas vs `{base_v}` (suite baseline)")
             lines.append("")
             lines.append(delta_table(results, baseline=base_v))
