@@ -71,8 +71,8 @@ def main():
 
     alive_hist, radius_hist = [], []
     for t in range(STEPS):
-        step_out = forward_step(state, params, u, cfg)
-        gradient_step(state, step_out, params, cfg)
+        step_out = forward_step(state, params, u, cfg, env=grid.env)
+        gradient_step(state, step_out, params, cfg, env=grid.env)
         state = step_out.next_state
         alive_hist.append(int(state.x.sum().item()))
         radius_hist.append(living_radius(state.x))

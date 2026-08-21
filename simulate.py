@@ -186,11 +186,17 @@ def run(cfg: Config, output_dir: str | Path | None = None,
         print(f"  N={cfg.N}, d={cfg.d}, hidden={cfg.hidden}, "
               f"eta={cfg.eta}, n_steps={cfg.n_steps}, seed={cfg.seed}")
         print(f"  Initial alive: {initial_stats['n_alive']} / {cfg.N*cfg.N}")
+        if cfg.environment_heterogeneous:
+            occ_frac = float(env.occupancy.mean().item()) if env is not None else 1.0
+            print(
+                f"  G env: preset={cfg.env_preset} env_seed={cfg.env_seed} "
+                f"occ_frac={occ_frac:.3f}"
+            )
 
     for t in range(1, cfg.n_steps + 1):
-        step_out = forward_step(state, params, u, cfg)
+        step_out = forward_step(state, params, u, cfg, env=env)
         if cfg.learn:
-            stats = gradient_step(state, step_out, params, cfg)
+            stats = gradient_step(state, step_out, params, cfg, env=env)
         else:
             stats = {
                 "loss_total": 0.0,

@@ -31,9 +31,17 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 from config import Config
+from environment import Environment, apply_occupancy, edge_kappa_product
 from grid import gather_neighbours
 from parameters import Parameters, batched_mlp, psi_out_dim
 from state import GOAL_ELIMINATE, GOAL_REPRODUCE, State
+
+
+def _env_edge_gate(state: State, env: Environment | None) -> Tensor | None:
+    """Return (N,N,8) κ product or None. Does not include ρ or x."""
+    if env is None:
+        return None
+    return edge_kappa_product(state, env)
 
 
 @dataclass
@@ -271,6 +279,7 @@ def message_pass(
     state: State,
     params: Parameters,
     typed_votes: bool = True,
+    env: Environment | None = None,
 ) -> MessagePassOutput:
     """Compute messages from every neighbour to every cell.
 
@@ -305,6 +314,9 @@ def message_pass(
     sender_rho = gather_neighbours(state.rho)       # (N, N, 8)
     sender_alive = gather_neighbours(state.x)       # (N, N, 8)
     gate = sender_rho * sender_alive                # (N, N, 8)
+    env_g = _env_edge_gate(state, env)              # κ product or None
+    if env_g is not None:
+        gate = gate * env_g
 
     messages = messages * gate.unsqueeze(-1)
 
@@ -318,7 +330,7 @@ def message_pass(
 
     aggregated_messages = messages.sum(dim=2)       # (N, N, d)
 
-    outgoing_votes = _compute_outgoing_votes(state, params)
+    outgoing_votes = _compute_outgoing_votes(state, params, env=env)
     return MessagePassOutput(
         aggregated_messages=aggregated_messages,
         V_kin=V_kin,
@@ -327,7 +339,11 @@ def message_pass(
     )
 
 
-def _compute_outgoing_votes(state: State, params: Parameters) -> Tensor:
+def _compute_outgoing_votes(
+    state: State,
+    params: Parameters,
+    env: Environment | None = None,
+) -> Tensor:
     """Compute (v_help, v_harm)_{i -> k} for each cell i and each outgoing edge.
 
     From cell i's POV, it sends to each of its 8 neighbours. The receiver
@@ -365,6 +381,9 @@ def _compute_outgoing_votes(state: State, params: Parameters) -> Tensor:
 
     # Gate by sender's own rho and alive.
     gate = (state.rho * state.x).unsqueeze(-1)  # (N, N, 1)
+    env_g = _env_edge_gate(state, env)          # same κ product tensor
+    if env_g is not None:
+        gate = gate * env_g
     help_votes = help_votes * gate
     harm_votes = harm_votes * gate
     return torch.stack([help_votes, harm_votes], dim=-1)  # (N, N, 8, 2)
@@ -507,17 +526,30 @@ class StepOutput:
     h_proposed: Tensor                 # (N, N, d)
 
 
-def forward_step(state: State, params: Parameters, u: Tensor, cfg: Config) -> StepOutput:
+def forward_step(
+    state: State,
+    params: Parameters,
+    u: Tensor,
+    cfg: Config,
+    env: Environment | None = None,
+) -> StepOutput:
     """One forward CA step. No gradient updates here.
 
     Order:
-        1. Message pass: messages + typed vote aggregates.
+        1. Message pass: messages + typed vote aggregates (κ-gated if env).
         2. Local update: propose new s and h.
         3. Survival: A, R, E + V_kin, V_foe + f-signal; hard threshold.
-        4. Goal inheritance (Step C): birth cells may adopt neighbour goals.
-        5. Mask: zero out s and h for cells that died.
+        4. Occupancy (Experiment G): uninhabitable cells forced dead.
+        5. Goal inheritance (Step C): birth cells may adopt neighbour goals.
+        6. Mask: zero out s and h for cells that died.
     """
-    mp = message_pass(state, params, typed_votes=cfg.typed_votes)
+    if cfg.environment_heterogeneous and env is None:
+        raise AssertionError(
+            "environment_heterogeneous=True requires env= (Grid.env). "
+            "Pass env=grid.env from the production loop."
+        )
+    env_use = env if cfg.environment_heterogeneous else None
+    mp = message_pass(state, params, typed_votes=cfg.typed_votes, env=env_use)
     s_proposed, h_proposed = local_update(
         state,
         mp.aggregated_messages,
@@ -530,6 +562,7 @@ def forward_step(state: State, params: Parameters, u: Tensor, cfg: Config) -> St
         state, mp.V_kin, mp.V_foe, s_proposed, u,
     )
     x_next = hard_survival(surv_in, cfg)
+    x_next = apply_occupancy(x_next, env_use)
 
     # Step C: colonization — only births update goals (when flag on).
     goals_next = inherit_goals(state, x_next, cfg)

@@ -146,6 +146,7 @@ def run_experiment(
 
     grid = build_grid(cfg)
     state, params, u = grid.state, grid.params, grid.u
+    env = grid.env
     # Initial goal fraction over all cells (latent map); used for density residual
     # and as the baseline for goal_frac drift under Step C.
     goal_frac_initial = float(
@@ -184,9 +185,9 @@ def run_experiment(
     n = int(cfg.n_steps)
     for t in range(n):
         # Need grad for learning; diagnostics use no_grad snapshots after step_out.
-        step_out = forward_step(state, params, u, cfg)
+        step_out = forward_step(state, params, u, cfg, env=env)
         if cfg.learn:
-            stats = gradient_step(state, step_out, params, cfg)
+            stats = gradient_step(state, step_out, params, cfg, env=env)
         else:
             stats = {
                 "loss_reproduce_mean": float("nan"),

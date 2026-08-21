@@ -62,6 +62,7 @@ def run_metrics(
 
     grid = build_grid(cfg)
     state, params, u = grid.state, grid.params, grid.u
+    env = grid.env
 
     # If the local build has a `learn` flag, respect the argument by cloning cfg.
     if _cfg_has_learn_flag():
@@ -77,9 +78,9 @@ def run_metrics(
             with torch.no_grad():
                 perturb_fn(state, pgen)
 
-        step_out = forward_step(state, params, u, cfg)
+        step_out = forward_step(state, params, u, cfg, env=env)
         if learn:
-            stats = gradient_step(state, step_out, params, cfg)
+            stats = gradient_step(state, step_out, params, cfg, env=env)
         else:
             stats = {
                 "loss_reproduce_mean": float("nan"),

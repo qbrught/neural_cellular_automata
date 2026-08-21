@@ -50,13 +50,14 @@ def main():
 
     grid = build_grid(cfg)
     state, params, u = grid.state, grid.params, grid.u
+    env = grid.env
 
     prev = param_vector(params)
     steps_axis, drift, alive_axis = [], [], []
 
     for t in range(STEPS):
-        step_out = forward_step(state, params, u, cfg)
-        gradient_step(state, step_out, params, cfg)
+        step_out = forward_step(state, params, u, cfg, env=env)
+        gradient_step(state, step_out, params, cfg, env=env)
         state = step_out.next_state
 
         if t % SNAP_EVERY == 0:

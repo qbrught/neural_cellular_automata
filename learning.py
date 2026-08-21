@@ -29,6 +29,7 @@ from torch import Tensor
 
 from config import Config
 from dynamics import StepOutput
+from environment import Environment
 from grid import gather_neighbours
 from parameters import Parameters
 from state import GOAL_REPRODUCE, State
@@ -252,6 +253,7 @@ def gradient_step(
     step_out: StepOutput,
     params: Parameters,
     cfg: Config,
+    env: Environment | None = None,
 ) -> dict[str, float]:
     """Compute per-cell gradients and apply masked SGD.
 
@@ -268,6 +270,10 @@ def gradient_step(
 
     Returns a dict of summary statistics for logging.
     """
+    if cfg.environment_heterogeneous and env is None:
+        raise AssertionError(
+            "environment_heterogeneous=True requires env= (Grid.env)."
+        )
     # Shared p_self graph for local loss and optional coexistence barrier.
     p_self = compute_p_self(state, step_out, cfg)
     losses = compute_local_losses(state, step_out, cfg, p_self=p_self)  # (N, N)

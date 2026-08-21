@@ -44,6 +44,7 @@ class SimulationEngine:
         self._state = None
         self._params = None
         self._u = None
+        self._env = None
         self._step_idx = 0
         self._running = False
         self._steps_per_second = 30.0  # UI-controlled tick rate
@@ -63,6 +64,7 @@ class SimulationEngine:
         self._state = grid.state
         self._params = grid.params
         self._u = grid.u
+        self._env = grid.env
         self._step_idx = 0
 
     def reset(self) -> None:
@@ -151,9 +153,13 @@ class SimulationEngine:
             # One step.
             with self._lock:
                 try:
-                    step_out = forward_step(self._state, self._params, self._u, self._cfg)
+                    step_out = forward_step(
+                        self._state, self._params, self._u, self._cfg, env=self._env,
+                    )
                     if self._cfg.learn:
-                        stats = gradient_step(self._state, step_out, self._params, self._cfg)
+                        stats = gradient_step(
+                            self._state, step_out, self._params, self._cfg, env=self._env,
+                        )
                     else:
                         stats = {
                             "loss_total": 0.0,
