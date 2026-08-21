@@ -52,6 +52,26 @@ def test_apply_a_clears_g():
     print("test_apply_a_clears_g OK")
 
 
+def test_apply_g_keeps_custom_regions():
+    regions = [
+        {"shape": "disk", "cy": 5, "cx": 7, "radius": 3, "kappa_R": 0, "kappa_E": 0},
+    ]
+    base = Config(
+        environment_heterogeneous=True,
+        env_preset="custom",
+        env_regions=regions,
+        env_n_blobs=0,
+    )
+    out = get_version("G").apply(base)
+    assert out.environment_heterogeneous is True
+    assert out.env_preset == "custom"
+    assert out.env_regions == regions
+    # Without regions, G still pins blobs.
+    blobs = get_version("G").apply(Config())
+    assert blobs.env_preset == "blobs"
+    print("test_apply_g_keeps_custom_regions OK")
+
+
 def test_apply_g_learn_pins_eta():
     base = Config(env_eta_lo=0.0, env_eta_hi=4.0, env_preset="blobs")
     out = get_version("G_learn").apply(base)
@@ -108,6 +128,7 @@ if __name__ == "__main__":
     test_aliases()
     test_apply_g_pins_blobs_knobs()
     test_apply_a_clears_g()
+    test_apply_g_keeps_custom_regions()
     test_apply_g_learn_pins_eta()
     test_all_includes_g()
     test_visualise_overlay_on_g_run()

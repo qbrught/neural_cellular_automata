@@ -185,6 +185,34 @@
     align-items: center;
   }
   #env-overlay-controls label { cursor: pointer; }
+  .field textarea {
+    grid-column: 1 / span 2;
+    width: 100%;
+    min-height: 110px;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    resize: vertical;
+  }
+  .region-helper {
+    margin: 8px 0 12px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .region-helper .row { margin: 6px 0; }
+  .region-helper input[type=number] {
+    width: 56px;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 4px;
+  }
+  canvas.clickable { cursor: crosshair; }
 </style>
 </head>
 <body>
@@ -251,6 +279,7 @@
       <label><input type="radio" name="env-overlay" value="occupancy"> Occupancy</label>
       <label><input type="radio" name="env-overlay" value="combined"> Combined</label>
       <label><input type="radio" name="env-overlay" value="type-split"> Type-split κ</label>
+      <span style="color:var(--muted)">Click grid to place a κ=0 disk</span>
     </div>
   </div>
 
@@ -313,6 +342,23 @@ function makeField(f, v) {
   header.appendChild(lbl);
   wrap.appendChild(header);
 
+  if (f.kind === "json") {
+    const ta = document.createElement("textarea");
+    ta.id = `cfg-${f.name}`;
+    ta.dataset.field = f.name;
+    ta.dataset.kind = "json";
+    if (v == null || v === "") {
+      ta.value = "[]";
+    } else if (typeof v === "string") {
+      ta.value = v;
+    } else {
+      ta.value = JSON.stringify(v, null, 2);
+    }
+    ta.spellcheck = false;
+    wrap.appendChild(ta);
+    return wrap;
+  }
+
   if (f.kind === "choice") {
     const sel = document.createElement("select");
     sel.id = `cfg-${f.name}`;
@@ -363,7 +409,8 @@ function applyPresetKnobGreyout() {
   const knobs = new Set(PRESET_KNOBS[preset] || []);
   for (const f of CFG_META) {
     if (f.group !== "Experiment G") continue;
-    if (f.name === "environment_heterogeneous" || f.name === "env_preset" || f.name === "env_seed") continue;
+    if (f.name === "environment_heterogeneous" || f.name === "env_preset" ||
+        f.name === "env_seed" || f.name === "env_regions") continue;
     const el = document.querySelector(`.field[data-field="${f.name}"]`);
     if (!el) continue;
     el.classList.toggle("unused", knobs.size > 0 && !knobs.has(f.name));
@@ -393,11 +440,97 @@ function renderConfig() {
       root.appendChild(wrap);
     }
   }
+  if (gDetails) renderRegionHelper(gDetails);
   const presetSel = document.getElementById("cfg-env_preset");
   if (presetSel) {
     presetSel.addEventListener("change", applyPresetKnobGreyout);
   }
   applyPresetKnobGreyout();
+}
+
+function renderRegionHelper(gDetails) {
+  const box = document.createElement("div");
+  box.className = "region-helper";
+  box.innerHTML = `
+    <div class="field-header"><label>Manual regions</label></div>
+    <div class="row">
+      <button type="button" id="btn-add-disk">Add disk</button>
+      <button type="button" id="btn-add-rect">Add rect</button>
+      <button type="button" id="btn-add-band">Add band</button>
+      <button type="button" id="btn-clear-regions">Clear</button>
+    </div>
+    <div>
+      Click the grid to drop a κ=0 disk.
+      Radius <input id="env-paint-radius" type="number" min="0.5" max="40" step="0.5" value="3"> cells.
+    </div>
+  `;
+  gDetails.appendChild(box);
+  const bind = (id, fn) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("click", fn);
+  };
+  bind("btn-add-disk", () => appendRegion({
+    shape: "disk", cy: 10, cx: 10, radius: 3, kappa_R: 0, kappa_E: 0,
+  }));
+  bind("btn-add-rect", () => appendRegion({
+    shape: "rect", r0: 6, c0: 6, r1: 13, c1: 13, kappa_R: 0, kappa_E: 0,
+  }));
+  bind("btn-add-band", () => appendRegion({
+    shape: "band", axis: "v", center: 10, width: 3, kappa_R: 0, kappa_E: 0,
+  }));
+  bind("btn-clear-regions", () => setRegions([]));
+}
+
+function getRegions() {
+  const ta = document.getElementById("cfg-env_regions");
+  if (!ta) return [];
+  const raw = ta.value.trim();
+  if (raw === "" || raw === "null") return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return null;
+  }
+}
+
+function setRegions(regions) {
+  const ta = document.getElementById("cfg-env_regions");
+  if (!ta) return;
+  ta.value = JSON.stringify(regions, null, 2);
+  ensureCustomPreset();
+}
+
+function appendRegion(region) {
+  const regions = getRegions();
+  if (regions === null) {
+    setError("env_regions JSON is invalid; fix it before adding a region");
+    return;
+  }
+  setError("");
+  regions.push(region);
+  setRegions(regions);
+}
+
+function ensureCustomPreset() {
+  const flag = document.getElementById("cfg-environment_heterogeneous");
+  const flagSlider = document.querySelector('input[type=range][data-target="cfg-environment_heterogeneous"]');
+  const preset = document.getElementById("cfg-env_preset");
+  if (flag) flag.value = "1";
+  if (flagSlider) flagSlider.value = "1";
+  if (preset) preset.value = "custom";
+  applyPresetKnobGreyout();
+}
+
+function gridCellFromClick(ev) {
+  const N = lastN || parseInt(CFG_VALUES.N, 10) || 0;
+  if (N <= 0) return null;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  const j = Math.floor((ev.clientX - rect.left) / rect.width * N);
+  const i = Math.floor((ev.clientY - rect.top) / rect.height * N);
+  if (i < 0 || j < 0 || i >= N || j >= N) return null;
+  return { i, j };
 }
 
 function collectConfig() {
@@ -407,11 +540,21 @@ function collectConfig() {
     if (!el) continue;
     if (f.kind === "intornone") {
       out[f.name] = (el.value === "") ? null : el.value;
+    } else if (f.kind === "json") {
+      out[f.name] = el.value.trim() === "" ? null : el.value;
     } else {
       out[f.name] = el.value;
     }
   }
   return out;
+}
+
+async function applyCurrentConfig() {
+  setError("");
+  const values = collectConfig();
+  const r = await api("POST", "/api/config", { values, reset: true });
+  if (r && r.ok === false) setError(r.error || "config invalid");
+  return r;
 }
 
 //----------------------------------------------------------------------------
@@ -528,12 +671,14 @@ function renderFrame(frame) {
   if (frame.env_active) {
     envLegend.hidden = false;
     envCtrls.hidden = false;
+    canvas.classList.add("clickable");
     if (overlayMode !== "off" && envCache) {
       compositeOverlay(buf, envCache, overlayMode);
     }
   } else {
     envLegend.hidden = true;
     envCtrls.hidden = true;
+    canvas.classList.remove("clickable");
   }
   ctx.putImageData(imageData, 0, 0);
 
@@ -605,11 +750,24 @@ document.getElementById("btn-reset").addEventListener("click", async () => {
   const r = await api("POST", "/api/reset", { values });
   if (r && r.ok === false) setError(r.error || "reset failed");
 });
-document.getElementById("btn-apply").addEventListener("click", async () => {
-  setError("");
-  const values = collectConfig();
-  const r = await api("POST", "/api/config", { values, reset: true });
-  if (r && r.ok === false) setError(r.error || "config invalid");
+document.getElementById("btn-apply").addEventListener("click", () => applyCurrentConfig());
+
+canvas.addEventListener("click", async (ev) => {
+  const cell = gridCellFromClick(ev);
+  if (!cell) return;
+  const radEl = document.getElementById("env-paint-radius");
+  const radius = radEl ? Math.max(0.5, parseFloat(radEl.value) || 3) : 3;
+  const regions = getRegions();
+  if (regions === null) {
+    setError("env_regions JSON is invalid; fix it before painting");
+    return;
+  }
+  regions.push({
+    shape: "disk", cy: cell.i, cx: cell.j, radius,
+    kappa_R: 0, kappa_E: 0,
+  });
+  setRegions(regions);
+  await applyCurrentConfig();
 });
 document.getElementById("btn-save").addEventListener("click", () => {
   // Trigger download via the server's stream endpoint (uses currently-applied config).

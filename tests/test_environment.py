@@ -363,6 +363,19 @@ def test_env_regions_golden_n16():
     print("test_env_regions_golden_n16 OK")
 
 
+def test_example_custom_inland_config_loads():
+    path = Path(__file__).resolve().parent.parent / "research" / "configs" / "g_custom_inland.json"
+    cfg = Config.load(path)
+    assert cfg.environment_heterogeneous is True
+    assert cfg.env_preset == "custom"
+    assert len(cfg.env_regions) == 3
+    env = generate_environment(cfg)
+    dead = env.kappa_R < 0.5
+    assert int(dead.sum().item()) > 50
+    assert float(env.occupancy.min().item()) == 1.0
+    print("test_example_custom_inland_config_loads OK")
+
+
 def test_custom_bad_shape_raises():
     cfg = _g_cfg(env_preset="custom", env_regions=[{"shape": "triangle"}])
     try:
@@ -477,6 +490,7 @@ if __name__ == "__main__":
     test_apply_occupancy_none_is_identity()
     test_config_validation_and_roundtrip()
     test_env_regions_golden_n16()
+    test_example_custom_inland_config_loads()
     test_custom_bad_shape_raises()
     test_edge_kappa_product_is_kappa_only()
     test_build_grid_flag_off_matches_seed_sequence()

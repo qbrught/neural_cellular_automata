@@ -92,6 +92,8 @@ Open `INDEX.md` (multi) or `REPORT.md` (single) after a run.
 
 `--versions all` includes **G** and **G_learn** (two extra arms). `--quick` stays `original,A`. G is transfer-only blobs; G_learn is a center learning hotspot. `env_seed` is not pinned, so suite `--seeds` share terrain. Overlay lives on `simulate.run` + `visualise.render_summary`, not on suite `panel.png`.
 
+Hand-authored terrain: put `env_preset: "custom"` and an `env_regions` list on the base JSON (see `research/configs/g_custom_inland.json`). `apply(G)` keeps those regions instead of pinning `blobs`. A still runs homogeneous (flag off).
+
 ## What is measured
 
 | Metric | Paper interpretation |

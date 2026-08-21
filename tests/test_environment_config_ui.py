@@ -7,6 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import json
+
 from config import Config
 from environment import PRESETS
 from ui_config import (
@@ -38,10 +40,11 @@ G_NUMERICS = (
 
 def test_g_fields_in_ui_fields():
     names = {n for (n, *_rest) in UI_FIELDS}
-    for name in G_BOOLS + G_NUMERICS + ("env_preset",):
+    for name in G_BOOLS + G_NUMERICS + ("env_preset", "env_regions"):
         assert name in names, f"{name} missing from UI_FIELDS"
     kinds = {n: k for (n, _l, k, *_r) in UI_FIELDS}
     assert kinds["env_preset"] == "choice"
+    assert kinds["env_regions"] == "json"
     for name in G_BOOLS:
         assert name in UI_FIELD_GROUP
     print("test_g_fields_in_ui_fields OK")
@@ -74,9 +77,40 @@ def test_payload_to_cfg_bools_and_choice():
     assert cfg.env_affect_R is False
     assert cfg.env_occupancy_blocks is True
     assert cfg.N == 12
-    # env_regions is not in UI_FIELDS → stays default None
     assert cfg.env_regions is None
     print("test_payload_to_cfg_bools_and_choice OK")
+
+
+def test_payload_to_cfg_env_regions_json():
+    regions = [
+        {"shape": "disk", "cy": 5, "cx": 7, "radius": 3, "kappa_R": 0, "kappa_E": 0},
+    ]
+    cfg = payload_to_cfg({
+        "environment_heterogeneous": "1",
+        "env_preset": "custom",
+        "env_regions": json.dumps(regions),
+    })
+    assert cfg.env_preset == "custom"
+    assert cfg.env_regions == regions
+    cfg2 = payload_to_cfg({
+        "environment_heterogeneous": 1,
+        "env_preset": "custom",
+        "env_regions": regions,
+    })
+    assert cfg2.env_regions == regions
+    cfg3 = payload_to_cfg({"env_regions": ""})
+    assert cfg3.env_regions is None
+    try:
+        payload_to_cfg({"env_regions": "{not json"})
+        raise AssertionError("expected ValueError")
+    except ValueError as e:
+        assert "env_regions" in str(e)
+    try:
+        payload_to_cfg({"env_regions": '{"shape": "disk"}'})
+        raise AssertionError("expected ValueError")
+    except ValueError as e:
+        assert "list" in str(e)
+    print("test_payload_to_cfg_env_regions_json OK")
 
 
 def test_payload_missing_preset_falls_back_to_identity():
@@ -113,6 +147,7 @@ if __name__ == "__main__":
     test_g_fields_in_ui_fields()
     test_cfg_to_payload_includes_choices()
     test_payload_to_cfg_bools_and_choice()
+    test_payload_to_cfg_env_regions_json()
     test_payload_missing_preset_falls_back_to_identity()
     test_snapshot_sends_env_maps_on_reset_only()
     print("\nAll environment UI tests passed.")

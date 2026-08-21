@@ -130,4 +130,22 @@ python server.py
 # open http://127.0.0.1:8765
 ```
 
-Sidebar sliders for every Config field; start/pause/reset buttons; live grid + alive/dead/loss counters; speed slider; download-current-config button. Setting `n_steps` blank runs indefinitely. The UI auto-renders new Config fields without code changes — only `UI_FIELDS` in `server.py` needs editing.
+Sidebar sliders for every Config field; start/pause/reset buttons; live grid + alive/dead/loss counters; speed slider; download-current-config button. Setting `n_steps` blank runs indefinitely. The UI auto-renders new Config fields without code changes — only `UI_FIELDS` in `ui_config.py` needs editing.
+
+### Experiment G terrain
+
+Presets (`blobs`, `vertical_band`, …) are generated from knobs + `env_seed`. To place islands by hand, set `env_preset` to `custom` and list regions. Example: [`research/configs/g_custom_inland.json`](research/configs/g_custom_inland.json).
+
+```json
+"environment_heterogeneous": true,
+"env_preset": "custom",
+"env_regions": [
+  {"shape": "disk", "cy": 5, "cx": 7, "radius": 3, "kappa_R": 0, "kappa_E": 0},
+  {"shape": "disk", "cy": 10, "cx": 13, "radius": 3, "kappa_R": 0, "kappa_E": 0},
+  {"shape": "rect", "r0": 14, "c0": 3, "r1": 17, "c1": 7, "kappa_R": 0, "kappa_E": 0}
+]
+```
+
+Shapes: `disk` (`cy`, `cx`, `radius`), `rect` (`r0,c0,r1,c1`, inclusive, wraps), `band` (`axis` `h`|`v`, `center`, `width`). Optional channels: `kappa_R`, `kappa_E`, `eta_R`, `eta_E`, `occupancy` (omit = leave unchanged). Occupancy off + `kappa_*=0` is a transfer-dead island cells can still live in.
+
+In the UI: Experiment G → Manual regions (JSON), or **click the grid** to drop a κ=0 disk. Download .json keeps the regions. `python run.py --config path.json --visualise` uses the same file.

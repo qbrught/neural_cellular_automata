@@ -94,6 +94,16 @@ class VersionSpec:
         if self.symmetrize_RE_weights:
             w = 0.5 * (float(out.w2) + float(out.w3))
             out = replace(out, w2=w, w3=w)
+        # Hand-authored terrain: keep custom env_regions from the base config
+        # when this version is an environment ablation (G / G_learn). A–F still
+        # force env_preset=identity so the regions are inert under flag-off.
+        if (
+            self.environment_heterogeneous
+            and cfg.env_preset == "custom"
+            and isinstance(cfg.env_regions, list)
+            and len(cfg.env_regions) > 0
+        ):
+            out = replace(out, env_preset="custom", env_regions=list(cfg.env_regions))
         return out
 
     def flag_summary(self) -> str:

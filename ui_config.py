@@ -6,13 +6,14 @@ SimulationEngine. The interactive UI still auto-renders from UI_FIELDS.
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, fields
 
 from config import Config
 from environment import PRESET_KNOBS, PRESETS
 
 # (field_name, label, kind, min, max, step)
-# kind is "int" | "float" | "intornone" | "choice"
+# kind is "int" | "float" | "intornone" | "choice" | "json"
 UI_FIELDS = [
     ("N", "Grid size N", "int", 5, 200, 1),
     ("d", "State dim d", "int", 1, 64, 1),
@@ -41,6 +42,7 @@ UI_FIELDS = [
     ("env_affect_R", "Env affect R (0/1)", "int", 0, 1, 1),
     ("env_affect_E", "Env affect E (0/1)", "int", 0, 1, 1),
     ("env_occupancy_blocks", "Env occupancy blocks (0/1)", "int", 0, 1, 1),
+    ("env_regions", "Env regions G (JSON)", "json", 0, 0, 1),
     ("w0", "w₀ bias", "float", -5.0, 5.0, 0.01),
     ("w1", "w₁ alive", "float", -5.0, 5.0, 0.01),
     ("w2", "w₂ reproducer", "float", -5.0, 5.0, 0.01),
@@ -71,6 +73,7 @@ UI_FIELD_GROUP = {
     "env_affect_R": "Experiment G",
     "env_affect_E": "Experiment G",
     "env_occupancy_blocks": "Experiment G",
+    "env_regions": "Experiment G",
 }
 
 _BOOL_FIELDS = {
@@ -113,7 +116,8 @@ def payload_to_cfg(values: dict) -> Config:
     """Build a Config from a dict of field-name -> value.
 
     Tolerates string values from form posts. Empty string for n_steps -> None.
-    Sidebar apply does not include env_regions (resets to None like output_dir).
+    ``env_regions`` is a JSON list (or already-parsed list). Empty string / null
+    → None. Invalid JSON raises ValueError so the UI can show the error.
     """
     out: dict = {}
     field_kinds = {n: kind for (n, _l, kind, _mn, _mx, _s) in UI_FIELDS}
@@ -130,6 +134,8 @@ def payload_to_cfg(values: dict) -> Config:
                 out[k] = int(v)
         elif kind == "choice":
             out[k] = str(v)
+        elif kind == "json":
+            out[k] = _parse_json_field(k, v)
         elif kind == "int":
             out[k] = int(v)
         elif kind == "float":
@@ -138,3 +144,17 @@ def payload_to_cfg(values: dict) -> Config:
     full = {f.name: getattr(defaults, f.name) for f in fields(Config)}
     full.update(out)
     return Config(**full)
+
+
+def _parse_json_field(name: str, v):
+    if v is None or v == "" or v == "null":
+        return None
+    if isinstance(v, (list, dict)):
+        return v
+    try:
+        parsed = json.loads(str(v))
+    except json.JSONDecodeError as e:
+        raise ValueError(f"{name} is not valid JSON: {e}") from e
+    if parsed is not None and not isinstance(parsed, list):
+        raise ValueError(f"{name} must be a JSON list, got {type(parsed).__name__}")
+    return parsed
