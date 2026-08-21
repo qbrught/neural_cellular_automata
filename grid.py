@@ -22,12 +22,16 @@ in the rolled tensor came from (i + di, j + dj) in the original.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import torch
 from torch import Tensor
 
 from parameters import Parameters
 from state import State
+
+if TYPE_CHECKING:
+    from environment import Environment
 
 # (di, dj) offsets in canonical order.
 NEIGHBOUR_OFFSETS: tuple[tuple[int, int], ...] = (
@@ -72,6 +76,7 @@ class Grid:
     state: State
     params: Parameters
     u: Tensor  # (d,) fixed projection vector for the f-signal channel
+    env: Environment | None = None  # Experiment G overlay; no identity factory
 
     @property
     def N(self) -> int:

@@ -56,6 +56,25 @@ class Config:
     coexistence_lambda: float = 0.01  # λ strength of barrier
     coexistence_delta: float = 1e-4  # δ floor inside log(ρ̃ + δ)
 
+    # ---- Experiment G: heterogeneous environment on the regular torus ----
+    # Frozen spatial field (occupancy / conductivity / η scale). Default off
+    # is a skip path: identity maps, no env RNG. Unknown presets are rejected
+    # in environment.generate_environment (avoids a Config↔environment cycle).
+    environment_heterogeneous: bool = False
+    env_preset: str = "identity"
+    env_seed: int = 0
+    env_dead_frac: float = 0.20
+    env_n_blobs: int = 3
+    env_blob_radius: float = 0.15
+    env_kappa_lo: float = 0.0
+    env_kappa_hi: float = 1.0
+    env_eta_lo: float = 0.25
+    env_eta_hi: float = 1.0
+    env_affect_R: bool = True
+    env_affect_E: bool = True
+    env_occupancy_blocks: bool = False
+    env_regions: list | None = None
+
     # ---- Survival rule weights ----
     # Logistic combination of:
     #   w0: bias (negative -> bias toward death)
@@ -107,6 +126,42 @@ class Config:
         if self.coexistence_delta <= 0:
             raise ValueError(
                 f"coexistence_delta must be positive, got {self.coexistence_delta}"
+            )
+        if not 0.0 <= self.env_dead_frac <= 1.0:
+            raise ValueError(
+                f"env_dead_frac must be in [0,1], got {self.env_dead_frac}"
+            )
+        if self.env_n_blobs < 0:
+            raise ValueError(
+                f"env_n_blobs must be non-negative, got {self.env_n_blobs}"
+            )
+        if self.env_n_blobs > 32:
+            raise ValueError(
+                f"env_n_blobs must be <= 32, got {self.env_n_blobs}"
+            )
+        if self.env_blob_radius <= 0:
+            raise ValueError(
+                f"env_blob_radius must be positive, got {self.env_blob_radius}"
+            )
+        if self.env_kappa_lo < 0:
+            raise ValueError(
+                f"env_kappa_lo must be non-negative, got {self.env_kappa_lo}"
+            )
+        if self.env_kappa_hi < 0:
+            raise ValueError(
+                f"env_kappa_hi must be non-negative, got {self.env_kappa_hi}"
+            )
+        if self.env_eta_lo < 0:
+            raise ValueError(
+                f"env_eta_lo must be non-negative, got {self.env_eta_lo}"
+            )
+        if self.env_eta_hi < 0:
+            raise ValueError(
+                f"env_eta_hi must be non-negative, got {self.env_eta_hi}"
+            )
+        if self.env_regions is not None and not isinstance(self.env_regions, list):
+            raise ValueError(
+                f"env_regions must be a list or None, got {type(self.env_regions)!r}"
             )
         if self.init_noise_std < 0:
             raise ValueError(
