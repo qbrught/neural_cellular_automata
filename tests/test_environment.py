@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
 
+import numpy as np
+
 from config import Config
 from environment import (
     PRESETS,
@@ -25,6 +27,7 @@ from environment import (
 )
 from grid import Grid
 from parameters import init_parameters
+from simulate import build_grid, run
 from state import GOAL_ELIMINATE, GOAL_REPRODUCE, init_state
 
 
@@ -389,6 +392,66 @@ def test_edge_kappa_product_is_kappa_only():
     print("test_edge_kappa_product_is_kappa_only OK")
 
 
+def test_build_grid_flag_off_matches_seed_sequence():
+    """Flag-off generate_environment does not consume the run-seed RNG."""
+    cfg_a = Config(N=8, d=4, hidden=8, n_steps=1, seed=123, environment_heterogeneous=False)
+    cfg_b = Config(N=8, d=4, hidden=8, n_steps=1, seed=123, environment_heterogeneous=False)
+    ga = build_grid(cfg_a)
+    gb = build_grid(cfg_b)
+    assert torch.equal(ga.state.x, gb.state.x)
+    assert torch.equal(ga.state.goals, gb.state.goals)
+    assert torch.equal(ga.state.rho, gb.state.rho)
+    assert torch.equal(ga.params.psi_W1, gb.params.psi_W1)
+    assert ga.env is not None
+    assert torch.equal(ga.env.occupancy, torch.ones(8, 8))
+    print("test_build_grid_flag_off_matches_seed_sequence OK")
+
+
+def test_build_grid_identity_does_not_change_init_x():
+    off = build_grid(Config(N=8, d=4, hidden=8, seed=7, environment_heterogeneous=False))
+    on = build_grid(Config(
+        N=8, d=4, hidden=8, seed=7,
+        environment_heterogeneous=True, env_preset="identity",
+    ))
+    assert torch.equal(off.state.x, on.state.x)
+    assert torch.equal(on.env.occupancy, torch.ones(8, 8))
+    print("test_build_grid_identity_does_not_change_init_x OK")
+
+
+def test_build_grid_occupancy_zeros_x_not_state():
+    """Init occupancy mask zeros x only; s/h still have noise (existing invariant)."""
+    cfg = _g_cfg(
+        N=8, d=4, hidden=8, seed=3, init_alive_prob=1.0, init_noise_std=0.05,
+        env_preset="custom", env_occupancy_blocks=False,
+        env_regions=[{
+            "shape": "rect", "r0": 2, "c0": 2, "r1": 2, "c1": 2,
+            "occupancy": 0.0,
+        }],
+    )
+    grid = build_grid(cfg)
+    assert grid.state.x[2, 2].item() == 0.0
+    # Neighbouring cells with init_alive_prob=1 should be alive.
+    assert grid.state.x[0, 0].item() == 1.0
+    # s/h are not zeroed at init (build_grid still runs normal_ on all cells).
+    assert grid.env.occupancy[2, 2].item() == 0.0
+    print("test_build_grid_occupancy_zeros_x_not_state OK")
+
+
+def test_trajectory_writes_env_maps():
+    cfg = Config(
+        N=6, d=4, hidden=8, n_steps=1, seed=4, learn=False,
+        save_state_vectors=False, output_dir=tempfile.mkdtemp(),
+        environment_heterogeneous=True, env_preset="vertical_band",
+        env_dead_frac=0.2, env_kappa_lo=0.0,
+    )
+    out = run(cfg, verbose=False)
+    traj = np.load(out / "trajectory.npz")
+    for key in ("occupancy", "kappa_R", "kappa_E", "eta_scale_R", "eta_scale_E"):
+        assert key in traj, f"missing {key}"
+        assert traj[key].shape == (6, 6)
+    print("test_trajectory_writes_env_maps OK")
+
+
 def test_presets_tuple_complete():
     assert "identity" in PRESETS
     assert "blobs" in PRESETS
@@ -416,5 +479,9 @@ if __name__ == "__main__":
     test_env_regions_golden_n16()
     test_custom_bad_shape_raises()
     test_edge_kappa_product_is_kappa_only()
+    test_build_grid_flag_off_matches_seed_sequence()
+    test_build_grid_identity_does_not_change_init_x()
+    test_build_grid_occupancy_zeros_x_not_state()
+    test_trajectory_writes_env_maps()
     test_presets_tuple_complete()
     print("\nAll environment generator tests passed.")

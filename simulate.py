@@ -19,6 +19,7 @@ import torch
 
 from config import Config
 from dynamics import forward_step, make_u
+from environment import Environment, generate_environment
 from grid import Grid
 from learning import gradient_step
 from parameters import init_parameters
@@ -52,7 +53,10 @@ def build_grid(cfg: Config) -> Grid:
     # u is sampled from its OWN seed, independent of the run seed, so different
     # runs with different seeds share the same projection direction.
     u = make_u(cfg.d, cfg.u_seed, device=cfg.device)
-    return Grid(state=state, params=params, u=u)
+    env = generate_environment(cfg)  # identity + no Generator if flag off
+    if cfg.environment_heterogeneous:
+        state.x = state.x * env.occupancy  # do not consume gen; do not zero s/h
+    return Grid(state=state, params=params, u=u, env=env)
 
 
 @dataclass
@@ -98,12 +102,14 @@ def save_trajectory(
     snapshots: list[Snapshot],
     rho: np.ndarray,
     out_path: Path,
+    env: Environment | None = None,
 ) -> None:
     """Stack all snapshots into one .npz file.
 
     Goals are saved per step as (T, N, N) so Step C (goal inheritance) is
     analysable. Older loaders that expect 2D goals should treat ndim==2 as
-    constant over time. rho remains constant (N, N).
+    constant over time. rho remains constant (N, N). Experiment G maps are
+    frozen (N, N) and always written when ``env`` is provided.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     arrays = {
@@ -128,6 +134,12 @@ def save_trajectory(
         "goals": np.stack([s.goals for s in snapshots]),  # (T, N, N) uint8
         "rho": rho,
     }
+    if env is not None:
+        arrays["occupancy"] = env.occupancy.detach().cpu().numpy().astype(np.float32)
+        arrays["kappa_R"] = env.kappa_R.detach().cpu().numpy().astype(np.float32)
+        arrays["kappa_E"] = env.kappa_E.detach().cpu().numpy().astype(np.float32)
+        arrays["eta_scale_R"] = env.eta_scale_R.detach().cpu().numpy().astype(np.float32)
+        arrays["eta_scale_E"] = env.eta_scale_E.detach().cpu().numpy().astype(np.float32)
     if snapshots[0].s is not None:
         arrays["s"] = np.stack([s.s for s in snapshots])  # (T, N, N, d)
         arrays["h"] = np.stack([s.h for s in snapshots])
@@ -150,6 +162,7 @@ def run(cfg: Config, output_dir: str | Path | None = None,
 
     grid = build_grid(cfg)
     state, params, u = grid.state, grid.params, grid.u
+    env = grid.env
 
     # rho is immutable; goals may change under goal_inheritance (saved per step).
     rho_np = state.rho.detach().cpu().numpy().astype(np.float32)
@@ -197,7 +210,7 @@ def run(cfg: Config, output_dir: str | Path | None = None,
 
     # Write outputs.
     cfg.save(output_dir / "config.json")
-    save_trajectory(snapshots, rho_np, output_dir / "trajectory.npz")
+    save_trajectory(snapshots, rho_np, output_dir / "trajectory.npz", env=env)
     params.detach_clone().save(output_dir / "params_final.pt")
 
     if verbose:
