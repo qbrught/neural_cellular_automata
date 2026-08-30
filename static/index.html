@@ -124,6 +124,34 @@
     font-variant-numeric: tabular-nums;
     width: 100%;
   }
+  .field input[type=checkbox] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 36px;
+    height: 20px;
+    background: var(--border);
+    border-radius: 10px;
+    position: relative;
+    cursor: pointer;
+    flex-shrink: 0;
+    margin: 0 0 0 8px;
+    transition: background 0.15s;
+  }
+  .field input[type=checkbox]::after {
+    content: "";
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 16px; height: 16px;
+    background: var(--text);
+    border-radius: 50%;
+    transition: transform 0.15s;
+  }
+  .field input[type=checkbox]:checked {
+    background: var(--accent-2);
+  }
+  .field input[type=checkbox]:checked::after {
+    transform: translateX(16px);
+  }
   .field-header {
     display: flex; justify-content: space-between;
   }
@@ -375,10 +403,23 @@ function makeField(f, v) {
     return wrap;
   }
 
+  if (f.kind === "bool") {
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.id = `cfg-${f.name}`;
+    cb.dataset.field = f.name;
+    cb.dataset.kind = "bool";
+    cb.checked = v === true || v === 1 || v === "1" || v === "true";
+    header.appendChild(cb);
+    return wrap;
+  }
+
   const num = document.createElement("input");
   num.type = (f.kind === "intornone") ? "text" : "number";
   num.id = `cfg-${f.name}`;
-  num.value = (v === null || v === undefined) ? "" : v;
+  let numVal = v;
+  if (typeof numVal === "boolean") numVal = numVal ? 1 : 0;
+  num.value = (numVal === null || numVal === undefined) ? "" : numVal;
   num.dataset.field = f.name;
   num.dataset.kind = f.kind;
   if (f.kind !== "intornone") {
@@ -516,7 +557,10 @@ function ensureCustomPreset() {
   const flag = document.getElementById("cfg-environment_heterogeneous");
   const flagSlider = document.querySelector('input[type=range][data-target="cfg-environment_heterogeneous"]');
   const preset = document.getElementById("cfg-env_preset");
-  if (flag) flag.value = "1";
+  if (flag) {
+    if (flag.type === "checkbox") flag.checked = true;
+    else flag.value = "1";
+  }
   if (flagSlider) flagSlider.value = "1";
   if (preset) preset.value = "custom";
   applyPresetKnobGreyout();
@@ -538,7 +582,9 @@ function collectConfig() {
   for (const f of CFG_META) {
     const el = document.getElementById(`cfg-${f.name}`);
     if (!el) continue;
-    if (f.kind === "intornone") {
+    if (f.kind === "bool") {
+      out[f.name] = el.checked;
+    } else if (f.kind === "intornone") {
       out[f.name] = (el.value === "") ? null : el.value;
     } else if (f.kind === "json") {
       out[f.name] = el.value.trim() === "" ? null : el.value;

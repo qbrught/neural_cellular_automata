@@ -46,6 +46,7 @@ def test_g_fields_in_ui_fields():
     assert kinds["env_preset"] == "choice"
     assert kinds["env_regions"] == "json"
     for name in G_BOOLS:
+        assert kinds[name] == "bool", f"{name} should be kind bool, got {kinds[name]}"
         assert name in UI_FIELD_GROUP
     print("test_g_fields_in_ui_fields OK")
 
@@ -79,6 +80,43 @@ def test_payload_to_cfg_bools_and_choice():
     assert cfg.N == 12
     assert cfg.env_regions is None
     print("test_payload_to_cfg_bools_and_choice OK")
+
+
+def test_payload_to_cfg_native_and_empty_bools():
+    """JSON true/false from the UI, and empty string, must not raise."""
+    defaults = Config()
+    cfg = payload_to_cfg({
+        "learn": True,
+        "learn_messages": False,
+        "typed_votes": True,
+        "environment_heterogeneous": False,
+        "env_affect_R": True,
+        "env_affect_E": False,
+    })
+    assert cfg.learn is True
+    assert cfg.learn_messages is False
+    assert cfg.typed_votes is True
+    assert cfg.environment_heterogeneous is False
+    assert cfg.env_affect_R is True
+    assert cfg.env_affect_E is False
+
+    empty = payload_to_cfg({
+        "learn": "",
+        "typed_votes": "",
+        "environment_heterogeneous": "",
+        "env_occupancy_blocks": None,
+    })
+    assert empty.learn is defaults.learn
+    assert empty.typed_votes is defaults.typed_votes
+    assert empty.environment_heterogeneous is defaults.environment_heterogeneous
+    assert empty.env_occupancy_blocks is defaults.env_occupancy_blocks
+
+    payload = cfg_to_payload(Config())
+    kinds = {f["name"]: f["kind"] for f in payload["fields"]}
+    assert kinds["learn"] == "bool"
+    assert payload["values"]["learn"] is True
+    assert payload["values"]["learn_messages"] is False
+    print("test_payload_to_cfg_native_and_empty_bools OK")
 
 
 def test_payload_to_cfg_env_regions_json():
@@ -147,6 +185,7 @@ if __name__ == "__main__":
     test_g_fields_in_ui_fields()
     test_cfg_to_payload_includes_choices()
     test_payload_to_cfg_bools_and_choice()
+    test_payload_to_cfg_native_and_empty_bools()
     test_payload_to_cfg_env_regions_json()
     test_payload_missing_preset_falls_back_to_identity()
     test_snapshot_sends_env_maps_on_reset_only()

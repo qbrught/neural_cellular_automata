@@ -13,23 +13,23 @@ from config import Config
 from environment import PRESET_KNOBS, PRESETS
 
 # (field_name, label, kind, min, max, step)
-# kind is "int" | "float" | "intornone" | "choice" | "json"
+# kind is "int" | "float" | "intornone" | "choice" | "json" | "bool"
 UI_FIELDS = [
     ("N", "Grid size N", "int", 5, 200, 1),
     ("d", "State dim d", "int", 1, 64, 1),
     ("hidden", "MLP hidden", "int", 4, 128, 1),
     ("eta", "Learning rate η", "float", 0.0, 1.0, 0.001),
-    ("learn", "Learn (0/1)", "int", 0, 1, 1),
-    ("learn_messages", "Learn messages (0/1)", "int", 0, 1, 1),
-    ("require_alive_neighbour", "Require alive nbr (0/1)", "int", 0, 1, 1),
-    ("typed_votes", "Typed votes A (0/1)", "int", 0, 1, 1),
-    ("predator_prey_loss", "Pred-prey loss B (0/1)", "int", 0, 1, 1),
-    ("goal_inheritance", "Goal inherit C (0/1)", "int", 0, 1, 1),
-    ("goal_in_f", "Goal in f D (0/1)", "int", 0, 1, 1),
-    ("coexistence_pressure", "Coexist pressure F (0/1)", "int", 0, 1, 1),
+    ("learn", "Learn", "bool", 0, 1, 1),
+    ("learn_messages", "Learn messages", "bool", 0, 1, 1),
+    ("require_alive_neighbour", "Require alive nbr", "bool", 0, 1, 1),
+    ("typed_votes", "Typed votes A", "bool", 0, 1, 1),
+    ("predator_prey_loss", "Pred-prey loss B", "bool", 0, 1, 1),
+    ("goal_inheritance", "Goal inherit C", "bool", 0, 1, 1),
+    ("goal_in_f", "Goal in f D", "bool", 0, 1, 1),
+    ("coexistence_pressure", "Coexist pressure F", "bool", 0, 1, 1),
     ("coexistence_lambda", "Coexist λ", "float", 0.0, 2.0, 0.001),
     ("coexistence_delta", "Coexist δ", "float", 1e-8, 0.1, 1e-5),
-    ("environment_heterogeneous", "Heterogeneous env G (0/1)", "int", 0, 1, 1),
+    ("environment_heterogeneous", "Heterogeneous env G", "bool", 0, 1, 1),
     ("env_preset", "Env preset G", "choice", 0, 0, 1),
     ("env_seed", "Env seed G", "int", 0, 1_000_000, 1),
     ("env_dead_frac", "Env dead frac G", "float", 0.0, 1.0, 0.01),
@@ -39,9 +39,9 @@ UI_FIELDS = [
     ("env_kappa_hi", "Env κ_hi G", "float", 0.0, 2.0, 0.01),
     ("env_eta_lo", "Env η_lo G", "float", 0.0, 4.0, 0.01),
     ("env_eta_hi", "Env η_hi G", "float", 0.0, 4.0, 0.01),
-    ("env_affect_R", "Env affect R (0/1)", "int", 0, 1, 1),
-    ("env_affect_E", "Env affect E (0/1)", "int", 0, 1, 1),
-    ("env_occupancy_blocks", "Env occupancy blocks (0/1)", "int", 0, 1, 1),
+    ("env_affect_R", "Env affect R", "bool", 0, 1, 1),
+    ("env_affect_E", "Env affect E", "bool", 0, 1, 1),
+    ("env_occupancy_blocks", "Env occupancy blocks", "bool", 0, 1, 1),
     ("env_regions", "Env regions G (JSON)", "json", 0, 0, 1),
     ("w0", "w₀ bias", "float", -5.0, 5.0, 0.01),
     ("w1", "w₁ alive", "float", -5.0, 5.0, 0.01),
@@ -76,21 +76,6 @@ UI_FIELD_GROUP = {
     "env_regions": "Experiment G",
 }
 
-_BOOL_FIELDS = {
-    "learn",
-    "learn_messages",
-    "require_alive_neighbour",
-    "typed_votes",
-    "predator_prey_loss",
-    "goal_inheritance",
-    "goal_in_f",
-    "coexistence_pressure",
-    "environment_heterogeneous",
-    "env_affect_R",
-    "env_affect_E",
-    "env_occupancy_blocks",
-}
-
 
 def cfg_to_payload(cfg: Config) -> dict:
     return {
@@ -112,10 +97,27 @@ def cfg_to_payload(cfg: Config) -> dict:
     }
 
 
+def _parse_bool(v):
+    """Coerce UI / JSON values to bool. Empty / None → None (use Config default)."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)) and v in (0, 1, 0.0, 1.0):
+        return bool(int(v))
+    s = str(v).strip().lower()
+    if s in ("1", "true", "yes", "on"):
+        return True
+    if s in ("0", "false", "no", "off"):
+        return False
+    raise ValueError(f"invalid boolean {v!r}")
+
+
 def payload_to_cfg(values: dict) -> Config:
     """Build a Config from a dict of field-name -> value.
 
     Tolerates string values from form posts. Empty string for n_steps -> None.
+    Empty / missing bools keep the Config default (true or false, never "").
     ``env_regions`` is a JSON list (or already-parsed list). Empty string / null
     → None. Invalid JSON raises ValueError so the UI can show the error.
     """
@@ -125,8 +127,11 @@ def payload_to_cfg(values: dict) -> Config:
         if k not in field_kinds:
             continue
         kind = field_kinds[k]
-        if k in _BOOL_FIELDS:
-            out[k] = bool(int(v))
+        if kind == "bool":
+            parsed = _parse_bool(v)
+            if parsed is None:
+                continue
+            out[k] = parsed
         elif kind == "intornone":
             if v is None or v == "" or v == "null":
                 out[k] = None
