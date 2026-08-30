@@ -476,5 +476,18 @@ def run_experiment(
                 goals=np.stack(frame_g),
                 **maps,
             )
+        # Late snapshot so functional analysis can probe ψ without re-simulating.
+        params.save(out_dir / "params_final.pt")
+        torch.save(
+            {
+                "x": state.x.detach().cpu().clone(),
+                "s": state.s.detach().cpu().clone(),
+                "h": state.h.detach().cpu().clone(),
+                "goals": state.goals.detach().cpu().clone(),
+                "rho": state.rho.detach().cpu().clone(),
+                "u": u.detach().cpu().clone(),
+            },
+            out_dir / "state_final.pt",
+        )
 
     return result

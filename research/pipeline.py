@@ -523,7 +523,33 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("report", help="Rebuild reports from an existing cache")
     sp.add_argument("suite_dir", type=Path)
     sp.set_defaults(func=cmd_report)
+
+    sp = sub.add_parser(
+        "functional",
+        help="Functional-divergence scores on a pipeline/suite folder (no PCA/UMAP)",
+    )
+    sp.add_argument("suite_dir", type=Path)
+    sp.set_defaults(func=_cmd_functional)
+
+    sp = sub.add_parser(
+        "embed",
+        help="PCA/UMAP of functional response vectors (visual seeds if protocol.json)",
+    )
+    sp.add_argument("suite_dir", type=Path)
+    sp.set_defaults(func=_cmd_embed)
     return p
+
+
+def _cmd_functional(args: argparse.Namespace) -> None:
+    from research.functional_analysis import run_compare
+
+    run_compare(Path(args.suite_dir))
+
+
+def _cmd_embed(args: argparse.Namespace) -> None:
+    from research.functional_analysis import run_embed
+
+    run_embed(Path(args.suite_dir))
 
 
 def main(argv: list[str] | None = None) -> None:

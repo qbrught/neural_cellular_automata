@@ -122,6 +122,25 @@ Hand-authored terrain: put `env_preset: "custom"` and an `env_regions` list on t
 | `g_frac drift` | Final − initial goal=REPRO fraction (all cells); ~0 without C |
 | `mean\|Δg_alive\|` | Mean step-to-step \|Δ\| of alive type fraction (colonization churn) |
 | extinction | Viability cost of the change |
+| functional Δ / ARI | Cell-level response geometry (not a count residual) |
+
+## Functional divergence (after a mix pipeline or suite)
+
+Same lettered arms and paired tests as mix Φ, on probe-response vectors. PCA/UMAP is a second pass.
+
+```bash
+# Mix-Φ lettered pipeline (writes cache/ + INDEX.md)
+python -m research.pipeline run --letters A,B,C --include-ladder --quick
+
+# Scores / paired tests (FUNCTIONAL_INDEX.md, functional_comparisons/<letter>/)
+python -m research.pipeline functional research_results/<run_name>
+# equivalent: python -m research.functional_analysis compare research_results/<run_name>
+
+# PCA/UMAP (functional_compare/)
+python -m research.pipeline embed research_results/<run_name>
+```
+
+Late snapshots (`params_final.pt`, `state_final.pt`) are written by the runner. Re-run sims if an older cache lacks them.
 
 ## Interactive UI (manual observations)
 
