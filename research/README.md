@@ -1,5 +1,18 @@
 # Research experiment suite
 
+**Thesis method (isolations + frames + paired tests):**
+
+```bash
+python -m research.pipeline list
+python -m research.pipeline run --quick                 # A, 1 seed, short T
+python -m research.pipeline run                         # frozen protocol (slow)
+python -m research.pipeline run --letters A,B,C --include-ladder
+```
+
+See [`THESIS_PIPELINE.md`](THESIS_PIPELINE.md). Add a letter in [`comparisons.py`](comparisons.py).
+
+---
+
 Central place to **run, measure, chart, and compare** system versions for the paper.
 
 Versions form an ablation path:
