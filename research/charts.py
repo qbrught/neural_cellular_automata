@@ -239,6 +239,42 @@ def plot_comparison_dashboard(
         series_fn=_density_residual_frac,
     )
 
+    def _has(key: str) -> bool:
+        return any(key in r.get("series", {}) for r in results)
+
+    if _has("f_signal_type_gap"):
+        _ov(
+            "f_signal_gap",
+            "23_f_signal_gap.png",
+            "f_signal_type_gap",
+            r"$|f$-signal$_R - f$-signal$_E|$",
+            "Type gap in f-survival signal (Step D)",
+        )
+    if _has("frac_alive_low_kappa"):
+        _ov(
+            "frac_low_kappa",
+            "24_frac_low_kappa.png",
+            "frac_alive_low_kappa",
+            "frac alive in low-κ",
+            "Living mass inside low-κ (Experiment G)",
+        )
+    if _has("death_rate_E_cross_minus_same"):
+        _ov(
+            "death_E_gap",
+            "25_death_E_gap.png",
+            "death_rate_E_cross_minus_same",
+            "E cross − E same",
+            "Eliminator death gap (prey vs fellow E)",
+        )
+    if _has("eta_mean_alive"):
+        _ov(
+            "eta_alive",
+            "26_eta_mean_alive.png",
+            "eta_mean_alive",
+            "mean η among alive",
+            "Alive-weighted learning-rate scale",
+        )
+
     # Step C: goal fraction over time (all cells).
     has_goal_frac = any(
         "goal_frac_repro" in r.get("series", {}) for r in results

@@ -202,6 +202,36 @@ def summarize_run(
         out["alive_goal_frac_repro_final"] = float("nan")
         out["mean_abs_goal_frac_delta"] = float("nan")
 
+    def _windows(key: str, out_key: str | None = None) -> None:
+        if key not in series:
+            return
+        arr = np.asarray(series[key], float)
+        name = out_key or key
+        out[f"mean_{name}"] = _nanmean(arr)
+        out[f"late_{name}"] = _nanmean(arr[late])
+        out[f"early_{name}"] = _nanmean(arr[early])
+
+    for key in (
+        "f_signal_R_mean",
+        "f_signal_E_mean",
+        "f_signal_type_gap",
+        "s_norm_R",
+        "s_norm_E",
+        "s_norm_type_gap",
+        "frac_alive_low_kappa",
+        "alive_low_kappa",
+        "alive_high_kappa",
+        "kappa_edge_mean",
+        "eta_mean_alive",
+        "death_rate_E_same",
+        "death_rate_E_cross",
+        "death_rate_E_cross_minus_same",
+        "death_rate_R_same",
+        "death_rate_R_cross",
+        "death_rate_R_cross_minus_same",
+    ):
+        _windows(key)
+
     # Experiment F: soft coexistence barrier diagnostics.
     if "coexistence_barrier" in series:
         B = np.asarray(series["coexistence_barrier"], float)
@@ -247,7 +277,7 @@ TABLE_COLUMNS: list[tuple[str, str, str]] = [
     ("phi_class_late", "Φ_late", ".4f"),
     ("corr_ra_ea", "corr(ra,ea)", ".3f"),
     ("corr_ra_density", "corr(ra, dens)", ".3f"),
-    ("mean_abs_residual_ra", "|ra residual|", ".2f"),
+    ("mean_abs_residual_ra", "abs ra residual", ".2f"),
     ("ratio_ra_ea_early", "ra/ea early", ".2f"),
     ("ratio_ra_ea_late", "ra/ea late", ".2f"),
     ("late_min_type_frac", "min(r,e)/a late", ".3f"),
@@ -259,6 +289,9 @@ TABLE_COLUMNS: list[tuple[str, str, str]] = [
     ("late_death_rate_same_edge", "death same late", ".3f"),
     ("late_death_rate_cross_edge", "death cross late", ".3f"),
     ("late_death_rate_cross_minus_same", "death gap late", ".3f"),
+    ("late_death_rate_E_cross_minus_same", "E death gap late", ".3f"),
+    ("late_f_signal_type_gap", "f-signal gap late", ".3f"),
+    ("late_frac_alive_low_kappa", "frac in low-κ late", ".3f"),
     ("mean_alive_late", "alive late", ".1f"),
     ("extinct_step", "extinct@", "s"),
 ]

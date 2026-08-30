@@ -12,9 +12,11 @@ import torch
 
 from config import Config
 from dynamics import forward_step
+from environment import Environment, edge_kappa_product, eta_map
 from grid import gather_neighbours
 from learning import gradient_step
 from research.metrics import summarize_run
+from research.protocol import FRAME_FRACS, frame_steps
 from research.versions import VersionSpec
 from simulate import build_grid
 from state import GOAL_ELIMINATE, GOAL_REPRODUCE
@@ -89,12 +91,30 @@ def _typed_edge_death_rates(state, x_next: torch.Tensor) -> dict[str, float]:
         if np.isfinite(same_r) and np.isfinite(cross_r)
         else float("nan")
     )
+    sender_elim = (state.goals == GOAL_ELIMINATE).unsqueeze(-1)
+    sender_repro = (state.goals == GOAL_REPRODUCE).unsqueeze(-1)
+    e_same = _rate(same_edge & sender_elim)
+    e_cross = _rate(cross_edge & sender_elim)
+    r_same = _rate(same_edge & sender_repro)
+    r_cross = _rate(cross_edge & sender_repro)
+
+    def _gap(a: float, b: float) -> float:
+        if np.isfinite(a) and np.isfinite(b):
+            return b - a
+        return float("nan")
+
     return {
         "death_rate_same_edge": same_r,
         "death_rate_cross_edge": cross_r,
         "death_rate_cross_minus_same": gap,
         "n_same_edges": float(same_edge.sum().item()),
         "n_cross_edges": float(cross_edge.sum().item()),
+        "death_rate_E_same": e_same,
+        "death_rate_E_cross": e_cross,
+        "death_rate_E_cross_minus_same": _gap(e_same, e_cross),
+        "death_rate_R_same": r_same,
+        "death_rate_R_cross": r_cross,
+        "death_rate_R_cross_minus_same": _gap(r_same, r_cross),
     }
 
 
@@ -122,6 +142,117 @@ def _vote_diagnostics(state, step_out) -> dict[str, float]:
     }
 
 
+@torch.no_grad()
+def _type_mean(values: torch.Tensor, mask: torch.Tensor) -> float:
+    if not mask.any():
+        return float("nan")
+    return float(values[mask].mean().item())
+
+
+@torch.no_grad()
+def _f_and_state_by_type(state, step_out) -> dict[str, float]:
+    """D diagnostics: f-signal and ||s|| split by alive type."""
+    fs = step_out.survival_inputs.f_signal
+    alive = state.x > 0
+    is_r = (state.goals == GOAL_REPRODUCE) & alive
+    is_e = (state.goals == GOAL_ELIMINATE) & alive
+    s_norm = torch.linalg.vector_norm(state.s, dim=-1)
+    r_fs = _type_mean(fs, is_r)
+    e_fs = _type_mean(fs, is_e)
+    r_sn = _type_mean(s_norm, is_r)
+    e_sn = _type_mean(s_norm, is_e)
+    gap = (
+        abs(r_fs - e_fs)
+        if np.isfinite(r_fs) and np.isfinite(e_fs)
+        else float("nan")
+    )
+    sn_gap = (
+        abs(r_sn - e_sn)
+        if np.isfinite(r_sn) and np.isfinite(e_sn)
+        else float("nan")
+    )
+    return {
+        "f_signal_R_mean": r_fs,
+        "f_signal_E_mean": e_fs,
+        "f_signal_type_gap": gap,
+        "s_norm_R": r_sn,
+        "s_norm_E": e_sn,
+        "s_norm_type_gap": sn_gap,
+    }
+
+
+@torch.no_grad()
+def _env_spatial(state, cfg: Config, env: Environment | None) -> dict[str, float]:
+    """G diagnostics: occupancy of low-κ cells and edge conductivity."""
+    n_alive = int((state.x > 0).sum().item())
+    out = {
+        "alive_low_kappa": float("nan"),
+        "alive_high_kappa": float("nan"),
+        "frac_alive_low_kappa": float("nan"),
+        "ra_low_kappa": float("nan"),
+        "ea_low_kappa": float("nan"),
+        "kappa_edge_mean": float("nan"),
+        "eta_mean_alive": float("nan"),
+    }
+    if env is None:
+        emap = eta_map(state, cfg, None)
+        alive = state.x > 0
+        out["eta_mean_alive"] = (
+            float(emap[alive].mean().item()) if alive.any() else float("nan")
+        )
+        out["alive_low_kappa"] = 0.0
+        out["alive_high_kappa"] = float(n_alive)
+        out["frac_alive_low_kappa"] = 0.0
+        out["ra_low_kappa"] = 0.0
+        out["ea_low_kappa"] = 0.0
+        return out
+    kbar = 0.5 * (env.kappa_R + env.kappa_E)
+    low = kbar < 0.5
+    alive = state.x > 0
+    is_r = (state.goals == GOAL_REPRODUCE) & alive
+    is_e = (state.goals == GOAL_ELIMINATE) & alive
+    n_low = int((alive & low).sum().item())
+    n_high = int((alive & ~low).sum().item())
+    out["alive_low_kappa"] = float(n_low)
+    out["alive_high_kappa"] = float(n_high)
+    out["frac_alive_low_kappa"] = (
+        n_low / n_alive if n_alive > 0 else float("nan")
+    )
+    out["ra_low_kappa"] = float((is_r & low).sum().item())
+    out["ea_low_kappa"] = float((is_e & low).sum().item())
+    kprod = edge_kappa_product(state, env)
+    edge = (state.x.unsqueeze(-1) > 0) & (gather_neighbours(state.x) > 0)
+    if edge.any():
+        out["kappa_edge_mean"] = float(kprod[edge].mean().item())
+    emap = eta_map(state, cfg, env)
+    out["eta_mean_alive"] = (
+        float(emap[alive].mean().item()) if alive.any() else float("nan")
+    )
+    return out
+
+
+def _extra_diagnostics(
+    state, step_out, cfg: Config, env: Environment | None
+) -> dict[str, float]:
+    """Hook for letter-specific series. Add collectors here, not in the loop."""
+    out: dict[str, float] = {}
+    out.update(_f_and_state_by_type(state, step_out))
+    out.update(_env_spatial(state, cfg, env))
+    return out
+
+
+def _env_maps(env: Environment | None) -> dict[str, np.ndarray]:
+    if env is None:
+        return {}
+    return {
+        "occupancy": env.occupancy.detach().cpu().numpy().astype(np.float32),
+        "kappa_R": env.kappa_R.detach().cpu().numpy().astype(np.float32),
+        "kappa_E": env.kappa_E.detach().cpu().numpy().astype(np.float32),
+        "eta_scale_R": env.eta_scale_R.detach().cpu().numpy().astype(np.float32),
+        "eta_scale_E": env.eta_scale_E.detach().cpu().numpy().astype(np.float32),
+    }
+
+
 def run_experiment(
     version: VersionSpec,
     base_cfg: Config,
@@ -130,6 +261,9 @@ def run_experiment(
     n_steps: int | None = None,
     out_dir: Path | None = None,
     log_every: int = 0,
+    arm_id: str | None = None,
+    save_frames: bool = False,
+    frame_fracs: tuple[float, ...] = FRAME_FRACS,
 ) -> dict[str, Any]:
     """Run one version on one seed; optionally write artifacts under out_dir.
 
@@ -147,6 +281,8 @@ def run_experiment(
     grid = build_grid(cfg)
     state, params, u = grid.state, grid.params, grid.u
     env = grid.env
+    env_use = env if cfg.environment_heterogeneous else None
+    label = arm_id or version.id
     # Initial goal fraction over all cells (latent map); used for density residual
     # and as the baseline for goal_frac drift under Step C.
     goal_frac_initial = float(
@@ -180,9 +316,44 @@ def run_experiment(
         "soft_rho_R": [],
         "soft_rho_E": [],
         "min_type_frac": [],
+        # D: type-split f-signal / state norm
+        "f_signal_R_mean": [],
+        "f_signal_E_mean": [],
+        "f_signal_type_gap": [],
+        "s_norm_R": [],
+        "s_norm_E": [],
+        "s_norm_type_gap": [],
+        # G: low-κ occupancy and scales
+        "alive_low_kappa": [],
+        "alive_high_kappa": [],
+        "frac_alive_low_kappa": [],
+        "ra_low_kappa": [],
+        "ea_low_kappa": [],
+        "kappa_edge_mean": [],
+        "eta_mean_alive": [],
+        # B: sender-type death rates (filled by _typed_edge_death_rates)
+        "death_rate_E_same": [],
+        "death_rate_E_cross": [],
+        "death_rate_E_cross_minus_same": [],
+        "death_rate_R_same": [],
+        "death_rate_R_cross": [],
+        "death_rate_R_cross_minus_same": [],
     }
 
     n = int(cfg.n_steps)
+    dump_at = set(frame_steps(n, frame_fracs)) if save_frames else set()
+    frame_x: list[np.ndarray] = []
+    frame_g: list[np.ndarray] = []
+    frame_t: list[int] = []
+
+    def _snap(step_idx: int, st) -> None:
+        if step_idx not in dump_at or step_idx in frame_t:
+            return
+        frame_t.append(step_idx)
+        frame_x.append(st.x.detach().cpu().numpy().astype(np.uint8))
+        frame_g.append(st.goals.detach().cpu().numpy().astype(np.uint8))
+
+    _snap(0, state)
     for t in range(n):
         # Need grad for learning; diagnostics use no_grad snapshots after step_out.
         step_out = forward_step(state, params, u, cfg, env=env)
@@ -229,6 +400,10 @@ def run_experiment(
         for k, v in death.items():
             buckets[k].append(v)
 
+        extra = _extra_diagnostics(state, step_out, cfg, env_use)
+        for k, v in extra.items():
+            buckets[k].append(v)
+
         # Goal fractions from post-step state so inheritance this step is visible.
         g_next = step_out.next_state.goals
         x_next = step_out.next_state.x
@@ -245,7 +420,7 @@ def run_experiment(
 
         if log_every and (t % log_every == 0 or t == n - 1):
             print(
-                f"  [{version.id} seed={seed}] t={t:4d} "
+                f"  [{label} seed={seed}] t={t:4d} "
                 f"alive={buckets['alive'][-1]:3d} "
                 f"ra={buckets['reproducer_alive'][-1]:3d} "
                 f"ea={buckets['eliminator_alive'][-1]:3d} "
@@ -253,12 +428,14 @@ def run_experiment(
             )
 
         state = step_out.next_state
+        _snap(t + 1, state)
 
     series = {k: np.asarray(v, dtype=float) for k, v in buckets.items()}
     summary = summarize_run(series, goal_frac_repro=goal_frac_initial)
 
     result = {
-        "version_id": version.id,
+        "version_id": label,
+        "spec_id": version.id,
         "version_title": version.title,
         "seed": seed,
         "goal_frac_repro": goal_frac_initial,
@@ -276,7 +453,9 @@ def run_experiment(
         with (out_dir / "meta.json").open("w") as f:
             json.dump(
                 {
-                    "version_id": version.id,
+                    "version_id": label,
+                    "spec_id": version.id,
+                    "arm_id": label,
                     "version_title": version.title,
                     "version_description": version.description,
                     "hypothesis": version.hypothesis,
@@ -288,5 +467,14 @@ def run_experiment(
                 indent=2,
             )
         cfg.save(out_dir / "config.json")
+        if save_frames and frame_x:
+            maps = _env_maps(env)
+            np.savez_compressed(
+                out_dir / "frames.npz",
+                steps=np.asarray(frame_t, dtype=np.int32),
+                x=np.stack(frame_x),
+                goals=np.stack(frame_g),
+                **maps,
+            )
 
     return result
