@@ -68,7 +68,19 @@ ncsa/
 
 ## Research suite (paper comparisons)
 
-Compare versions under fixed seeds with metrics, charts, and a markdown report:
+Compare versions under fixed seeds with metrics, charts, and a markdown report.
+
+**Thesis pipeline** (pairwise isolations, spatial frames, paired tests, four-chunk reports):
+
+```bash
+python -m research.pipeline list
+python -m research.pipeline run --quick              # smoke
+python -m research.pipeline run                      # frozen protocol (slow)
+```
+
+See [`research/THESIS_PIPELINE.md`](research/THESIS_PIPELINE.md).
+
+Ad-hoc version lists still use the suite:
 
 ```bash
 python -m research.suite list
@@ -76,7 +88,7 @@ python -m research.suite run --versions original,A          # full
 python -m research.suite run --quick                        # smoke
 ```
 
-Open `research_results/<run>/REPORT.md`. See [`research/README.md`](research/README.md).
+Open `research_results/<run>/INDEX.md` (pipeline) or `REPORT.md` (suite). See [`research/README.md`](research/README.md).
 
 Version flags (also in the UI): `typed_votes` (A), `predator_prey_loss` (B), `goal_inheritance` (C), `goal_in_f` (D), `coexistence_pressure` (F), `environment_heterogeneous` (G).
 
