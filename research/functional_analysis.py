@@ -205,6 +205,21 @@ def _fmt(x: float, spec: str = ".3f") -> str:
     return format(float(x), spec)
 
 
+def rows_for_comparison(
+    comp: Comparison,
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep arms on this comparison's config (sym A ≠ asym A)."""
+    arms = {a.id for a in comp.arms}
+    rows = [r for r in records if r["version_id"] in arms]
+    cid = comp.config_id
+    if cid:
+        scoped = [r for r in rows if r.get("config_id") == cid]
+        if scoped:
+            return scoped
+    return rows
+
+
 def write_letter_report(
     comp: Comparison,
     records: list[dict[str, Any]],
@@ -213,7 +228,7 @@ def write_letter_report(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     arms = [a.id for a in comp.arms]
-    rows = [r for r in records if r["version_id"] in arms]
+    rows = rows_for_comparison(comp, records)
     lines: list[str] = []
     lines.append(f"# Functional divergence — {comp.title}")
     lines.append("")
