@@ -64,13 +64,29 @@ def _fmt(x: float, spec: str = ".3f") -> str:
     return format(float(x), spec)
 
 
-def _save(fig, path: Path) -> Path:
+def _save(fig, path: Path, *, tight: bool = True, rect=None, bbox_inches=None) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout()
-    fig.savefig(path)
+    if tight:
+        fig.tight_layout(**({} if rect is None else {"rect": rect}))
+    fig.savefig(path, bbox_inches=bbox_inches)
     plt.close(fig)
     return path
+
+
+def _goal_legend_handles():
+    return [
+        plt.Line2D(
+            [0], [0], marker="o", color="w", markerfacecolor=REPRO_C, markersize=8, label="repro"
+        ),
+        plt.Line2D(
+            [0], [0], marker="o", color="w", markerfacecolor=ELIM_C, markersize=8, label="elim"
+        ),
+    ]
+
+
+def _row_copy_path(path: Path, vid: str) -> Path:
+    return path.parent / "rows" / f"{path.stem}_{vid}{path.suffix}"
 
 
 def _load_snapshot_tensors(run_dir: Path) -> tuple[Parameters, State, torch.Tensor, Config]:
@@ -229,16 +245,19 @@ def plot_embedding_grid(
     kind: str,
     when: str,
     title: str,
+    write_rows: bool = True,
 ) -> Path | None:
     """kind: 'pca' | 'umap'. when: 'late' | 'init'."""
     _style()
     vids = _ordered_vids({r["version_id"] for r in records})
     seeds = sorted({r["seed"] for r in records})
+    n_vid = len(vids)
     fig, axes = plt.subplots(
-        len(vids),
+        n_vid,
         len(seeds),
-        figsize=(3.4 * len(seeds), 3.2 * len(vids)),
+        figsize=(3.4 * len(seeds), (3.8 if n_vid == 1 else 3.2 * n_vid)),
         squeeze=False,
+        layout="constrained",
     )
     any_ok = False
     for i, vid in enumerate(vids):
@@ -262,7 +281,7 @@ def plot_embedding_grid(
             any_ok = True
             c = _color_goals(snap.goals)
             ax.scatter(xy[:, 0], xy[:, 1], c=c, s=8, alpha=0.75, linewidths=0)
-            ax.set_title(f"{vid} · seed {seed}", fontsize=9)
+            ax.set_title(f"seed {seed}" if n_vid == 1 else f"{vid} · seed {seed}", fontsize=9)
             if j == 0:
                 ax.set_ylabel(vid)
     if not any_ok:
@@ -270,26 +289,48 @@ def plot_embedding_grid(
         return None
     fig.suptitle(title, fontweight="bold")
     fig.legend(
-        handles=[
-            plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=REPRO_C, markersize=8, label="repro"),
-            plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=ELIM_C, markersize=8, label="elim"),
-        ],
-        loc="upper right",
+        handles=_goal_legend_handles(),
+        loc="center left" if n_vid == 1 else "upper right",
+        bbox_to_anchor=(1.02, 0.5) if n_vid == 1 else None,
         frameon=True,
     )
-    return _save(fig, path)
+    saved = _save(fig, path, tight=False, bbox_inches="tight")
+    if write_rows and n_vid > 1:
+        for vid in vids:
+            subset = [r for r in records if r["version_id"] == vid]
+            plot_embedding_grid(
+                subset,
+                _row_copy_path(path, vid),
+                family=family,
+                kind=kind,
+                when=when,
+                title=f"{title} — {vid}",
+                write_rows=False,
+            )
+    return saved
 
 
-def plot_init_vs_late_pca(records: list[dict[str, Any]], path: Path, *, family: str) -> Path:
+def plot_init_vs_late_pca(
+    records: list[dict[str, Any]],
+    path: Path,
+    *,
+    family: str,
+    write_rows: bool = True,
+) -> Path:
     _style()
     vids = _ordered_vids({r["version_id"] for r in records})
     seeds = sorted({r["seed"] for r in records})
-    nrows = len(vids) * 2
+    n_vid = len(vids)
+    nrows = n_vid * 2
+    title = f"PCA of `{family}` responses: init vs late (green=R, red=E)"
+    if n_vid == 1:
+        title = f"{title} — {vids[0]}"
     fig, axes = plt.subplots(
         nrows,
         len(seeds),
-        figsize=(3.3 * len(seeds), 2.6 * nrows),
+        figsize=(3.3 * len(seeds), (5.6 if n_vid == 1 else 2.6 * nrows)),
         squeeze=False,
+        layout="constrained",
     )
     for vi, vid in enumerate(vids):
         for j, seed in enumerate(seeds):
@@ -308,8 +349,18 @@ def plot_init_vs_late_pca(records: list[dict[str, Any]], path: Path, *, family: 
                 xy = snap.families[family].pca_xy
                 ax.scatter(xy[:, 0], xy[:, 1], c=_color_goals(snap.goals), s=7, alpha=0.75, linewidths=0)
                 ax.set_title(f"{vid} {when} · {seed}", fontsize=8)
-    fig.suptitle(f"PCA of `{family}` responses: init vs late (green=R, red=E)", fontweight="bold")
-    return _save(fig, path)
+    fig.suptitle(title, fontweight="bold")
+    saved = _save(fig, path, tight=False, bbox_inches="tight")
+    if write_rows and n_vid > 1:
+        for vid in vids:
+            subset = [r for r in records if r["version_id"] == vid]
+            plot_init_vs_late_pca(
+                subset,
+                _row_copy_path(path, vid),
+                family=family,
+                write_rows=False,
+            )
+    return saved
 
 
 def plot_delta_bars(records: list[dict[str, Any]], path: Path) -> Path:
