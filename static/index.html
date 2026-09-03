@@ -292,6 +292,7 @@
       <span><span class="dot" style="background:var(--red)"></span>eliminator alive</span>
       <span><span class="dot" style="background:var(--dead);border:1px solid var(--border)"></span>dead</span>
     </div>
+    <!-- Experiment G overlay (not in the report; hidden from the UI).
     <div class="legend" id="env-legend" hidden>
       <span><span class="dot" style="background:#3b82f6"></span>low κ</span>
       <span><span class="dot" style="background:#22d3ee"></span>high κ</span>
@@ -309,6 +310,7 @@
       <label><input type="radio" name="env-overlay" value="type-split"> Type-split κ</label>
       <span style="color:var(--muted)">Click grid to place a κ=0 disk</span>
     </div>
+    -->
   </div>
 
   <!-- Sidebar: speed + config -->
@@ -714,7 +716,8 @@ function renderFrame(frame) {
   }
   const envLegend = document.getElementById("env-legend");
   const envCtrls = document.getElementById("env-overlay-controls");
-  if (frame.env_active) {
+  // Experiment G overlay is commented out of the HTML; skip if absent.
+  if (frame.env_active && envLegend && envCtrls) {
     envLegend.hidden = false;
     envCtrls.hidden = false;
     canvas.classList.add("clickable");
@@ -722,8 +725,8 @@ function renderFrame(frame) {
       compositeOverlay(buf, envCache, overlayMode);
     }
   } else {
-    envLegend.hidden = true;
-    envCtrls.hidden = true;
+    if (envLegend) envLegend.hidden = true;
+    if (envCtrls) envCtrls.hidden = true;
     canvas.classList.remove("clickable");
   }
   ctx.putImageData(imageData, 0, 0);
@@ -799,6 +802,8 @@ document.getElementById("btn-reset").addEventListener("click", async () => {
 document.getElementById("btn-apply").addEventListener("click", () => applyCurrentConfig());
 
 canvas.addEventListener("click", async (ev) => {
+  // Experiment G click-to-paint: no-op while G fields are hidden from the UI.
+  if (!document.getElementById("cfg-env_regions")) return;
   const cell = gridCellFromClick(ev);
   if (!cell) return;
   const radEl = document.getElementById("env-paint-radius");

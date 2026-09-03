@@ -1,138 +1,97 @@
 # Neural State-Aware Cellular Automaton
 
-**Version 1.0**
-
-A 2D cellular automaton where each cell has a fixed goal (reproduce or eliminate) and learns per-cell MLP parameters to pursue that goal. Survival is governed by a fixed global CA rule that cells cannot change but learn to exploit.
+A 2D cellular automaton where each cell has a goal (reproduce or eliminate) and its own tiny MLPs. Survival is a **fixed global rule** that cells cannot change but learn to exploit.
 
 ![animation](animation.gif)
 
 *20×20 grid, 300 steps. Green = alive reproducer, red = alive eliminator, dark = dead.*
 
-## New changes from initial POC
+## How it works
 
-The headline change is **Path 1**: the local update MLP `f` now actually learns.
+Each cell \(i\) holds an alive flag \(x_i\), an observable state \(s_i\), a memory \(h_i\), a goal \(g_i \in \{\text{reproduce}, \text{eliminate}\}\), and a communication rate \(\rho_i\). Two per-cell 1-hidden-layer MLPs run every step:
 
-In v0.0.1, the survival rule only listened to ψ's vote output, so only ψ received gradient. `f` ran every step but its parameters never moved. v0.0.2 fixes that by adding a second learnable channel into the survival rule:
+- **ψ** (message): on each outgoing Moore edge, emit a message vector plus typed votes \(v_{\text{help}}\) (kin) and \(v_{\text{harm}}\) (foe).
+- **f** (local update): propose a next \((s, h)\) from the cell’s own state and the aggregated incoming messages.
 
-$$p^{t+1}_i = \sigma(w_0 + w_1 A_i + w_2 R_i + w_3 E_i + w_4 V_i + w_5 \tanh(\mathbf{u} \cdot \tilde{s}^t_i))$$
+The survival probability is a logistic of neighbourhood counts, routed votes, and a bounded *f-signal*:
 
-Where $\tilde{s}^t_i$ is `f`'s proposed next-state output and $\mathbf{u}$ is a hand-set fixed projection vector. The tanh bounds the f-signal contribution so it can't trivially saturate the rule (without it, every cell learns "set $\mathbf{u} \cdot s$ very large, live forever" and the ecosystem freezes).
+\[
+p_i = \sigma\!\big(
+  w_0 + w_1 A_i + w_2 R_i + w_3 E_i
+  + w_4^{\text{help}} V^{\text{kin}}_i
+  + w_4^{\text{harm}} V^{\text{foe}}_i
+  + w_5 \tanh(\mathbf{u}\cdot\tilde{s}_i)
+\big)
+\]
 
-The loss now also includes a self-survival term:
+\(A_i, R_i, E_i\) are alive / reproducer / eliminator neighbour counts. \(V^{\text{kin}}\) / \(V^{\text{foe}}\) are ρ-gated vote sums from same-goal vs opposite-goal neighbours. \(\tilde{s}_i\) is *f*’s proposed next state; \(\mathbf{u}\) is a fixed projection (sampled from `u_seed`). Hard update: \(x_i \leftarrow 1[p_i > 0.5]\).
 
-$$\ell_i = -p^{t+1}_i + \text{sign}(g_i) \cdot \sum_{j \in \mathcal{N}(i)} p^{t+1}_j$$
+Local loss (both types want themselves alive; they differ on neighbours):
 
-Both goal types want themselves alive (so they can act next step); they differ on what they want for neighbours.
+\[
+\ell_i = -p_i + \sum_{k \in \mathcal{N}(i)} c_{i,k}\, p_k
+\]
 
-Together these give `f` a real gradient channel without breaking the locality property: cell $i$'s parameters still only update from cell $i$'s loss.
+Reproducers protect kin and pressure foes. Eliminators pressure everyone by default, or only prey when `predator_prey_loss` is on. SGD is per-cell and per-step; `learn=False` skips the gradient step entirely (both ψ and *f* stay frozen).
 
-A new learn config flag toggles this channel. With learn=True (default), f learns as described above. With learn=False, f's parameters stay frozen at init — recovering the v0.0.1 behaviour where f runs every step but never moves. This makes it cheap to A/B the two regimes from a shared seed and watch directly how a learning f changes the ecosystem's trajectory versus the ψ-only baseline. (ψ continues to learn either way; the flag only gates f.)
-## What this demonstrates
+**Locality.** Neighbour contributions to \(p\) are detached except for this cell’s own vote / f-signal. `loss.sum().backward()` therefore fills only that cell’s parameter slot. The message-vector head of ψ is frozen under the default Path-1 detaches (`learn_messages=False`); votes and the f-signal are the trained channels.
 
-- A 2D grid of cells, each with its own ψ (message function) and `f` (local update) MLPs.
-- A fixed survival rule that combines: neighbour alive count, reproducer count, eliminator count, weighted vote sum, and a bounded f-signal channel.
-- Per-cell, per-step gradient descent on a local loss.
-- **Both ψ and `f` learn**. Two separate channels — votes for influencing neighbours, f-signal for influencing self-survival.
-- Gradient locality: cell *i*'s update depends only on cell *i*'s parameters. Verified by per-cell test across both ψ and `f` weights.
-- Bit-exact reproducibility from a single seed.
+Weights \(w_0\ldots w_5\), goals (unless inheritance is on), \(\rho\), and \(\mathbf{u}\) are fixed at init. A single `Config.seed` makes a run bit-exact.
 
-## Key design choices
+## Ablation flags
 
-**The vote channel.** The spec's survival rule as originally written had no path from learnable parameters to the loss. We extended ψ to emit a vote scalar per outgoing edge, with the survival rule reading the rho-weighted sum of incoming votes. This gives ψ a way to influence neighbours' survival.
+Config flags (also in the UI) isolate paper versions on a shared seed:
 
-**The f-signal channel.** Reading `f`'s proposed next-state via a fixed projection $\mathbf{u}$ and a tanh-bounded weight. This gives `f` a way to influence self-survival, which is what gets it any gradient at all.
+| Flag | Version | Effect |
+| --- | --- | --- |
+| `typed_votes` | A (default on) | Help/harm votes routed by kin vs foe |
+| `predator_prey_loss` | B | Eliminators only pressure reproducer neighbours |
+| `goal_inheritance` | C | Birth cells adopt majority neighbour goal |
+| `goal_in_f` | D | Own goal is an input to *f* |
+| `coexistence_pressure` | F | Soft barrier on both types’ living mass |
 
-**Gradient locality via detach.** Every place where a neighbour's contribution to a survival probability appears, we detach everything except the current cell's own contribution. The result is that `loss.sum().backward()` produces per-cell gradients that respect locality without any per-cell loops.
+`original` is typed votes off (one indiscriminate vote channel). `E` is A plus symmetric \(w_2=w_3\). See [`research/README.md`](research/README.md) for the full registry (`C_only`, `D_fixed`, …).
 
-The hand-tuned weights, per-cell goals, per-cell communication rates, and the projection vector $\mathbf{u}$ all remain fixed at init.
-
+**Experiment G** (frozen spatial maps: occupancy / κ / η-scale) is implemented in `environment.py` but was **not included in the report**. The interactive UI hides those controls. You can still enable it from a Config JSON via `python run.py --config …`.
 
 ## Project structure
 
 ```
-ncsa/
-  config.py        # hyperparameters + seed + research version flags
-  parameters.py    # per-cell ψ and f MLP weights, batched forward
-  state.py         # per-cell state (x, s, h, goals, rho)
-  grid.py          # Grid container, toroidal Moore-neighbourhood gather
-  dynamics.py      # message pass, local update, survival rule (typed votes)
-  learning.py      # per-cell loss, locality SGD step
-  simulate.py      # full loop, trajectory writing
-  visualise.py     # render trajectory.npz to summary.png / animation.gif
-  run.py           # CLI
-  server.py        # interactive UI
-  research/        # paper version suite (original → A → B → C → D)
-  experiments/     # one-off scientific probes
-  tests/           # unit tests
+config.py              # hyperparameters, seed, version flags
+parameters.py          # per-cell ψ / f MLP weights, batched forward
+state.py               # x, s, h, goals, rho
+grid.py                # Grid container, toroidal Moore-8 gather
+dynamics.py            # message pass, local update, survival
+learning.py            # per-cell loss, locality SGD
+environment.py         # Experiment G overlay (frozen maps)
+simulate.py            # init → steps → trajectory.npz
+visualise.py           # summary / animation / final grid
+run.py                 # CLI
+server.py              # interactive UI
+simulation_engine.py   # background tick thread for the UI
+ui_config.py           # UI field metadata
+discover.py            # guided / random config search
+discovery/             # catalog, prefilter, VLM judge
+research/              # paper versions, suite, thesis pipeline
+experiments/           # one-off scientific probes
+tests/                 # unit tests
+static/                # UI frontend
 ```
 
-## Research suite (paper comparisons)
-
-Compare versions under fixed seeds with metrics, charts, and a markdown report.
-
-**Thesis pipeline** (pairwise isolations, spatial frames, paired tests, four-chunk reports):
-
-```bash
-python -m research.pipeline list
-python -m research.pipeline run --quick              # smoke
-python -m research.pipeline run                      # frozen protocol (slow)
-```
-
-See [`research/THESIS_PIPELINE.md`](research/THESIS_PIPELINE.md).
-
-Ad-hoc version lists still use the suite:
-
-```bash
-python -m research.suite list
-python -m research.suite run --versions original,A          # full
-python -m research.suite run --quick                        # smoke
-```
-
-Open `research_results/<run>/INDEX.md` (pipeline) or `REPORT.md` (suite). See [`research/README.md`](research/README.md).
-
-Version flags (also in the UI): `typed_votes` (A), `predator_prey_loss` (B), `goal_inheritance` (C), `goal_in_f` (D), `coexistence_pressure` (F), `environment_heterogeneous` (G).
-
-## Run simulation stand-alone
+## Quick start
 
 ```bash
 pip install torch numpy matplotlib
-python run.py --visualise                        # defaults
-python run.py --seed 7 --n-steps 500 --visualise # custom
+python run.py --visualise                         # defaults
+python run.py --seed 7 --n-steps 500 --visualise  # overrides
+python run.py --config path/to/config.json --visualise
 ```
 
-Outputs land in `runs/<timestamp>/` as `config.json`, `trajectory.npz`, `params_final.pt`, and (with `--visualise`) `summary.png` and `animation.gif`.
-
-## Automated config discovery
-
-Search configs with **learning on**, prefilter crashes, and use **Gemini Flash** both to judge dynamics and to **propose the next config** (guided search). Pure random is still available via `--no-guided`.
+Writes `runs/<name>/` with `config.json`, `trajectory.npz`, `params_final.pt`, and (with `--visualise`) `summary.svg` plus `animation.gif`. Extra plots: `--final-grid`, `--alive-count`.
 
 ```bash
-pip install -r requirements-discovery.txt   # google-genai
-export GEMINI_API_KEY=...                   # or GOOGLE_API_KEY
-
-# Guided (default): VLM sees config + summary + recent history, returns
-# analysis + next_config (small directed steps after extinction/static, etc.)
-python discover.py --max-cycles 30 --target-discoveries 5
-
-# Occasional random jumps while guided (default explore-prob=0.15)
-python discover.py --max-cycles 40 --target-discoveries 5 --explore-prob 0.2
-
-# Pure random (old behaviour)
-python discover.py --no-guided --max-cycles 30 --target-discoveries 5
-
-# Dry run: sims + prefilter + heuristic steering, no API
-python discover.py --max-cycles 10 --dry-run --n-steps 500
+python -m pytest tests/ -q
 ```
-
-Each guided cycle logs `analysis`, `strategy`, and which knobs change next. Saved finds land under `discoveries/` with a one-liner catalog.
-
-Re-run a discovery:
-
-```bash
-python run.py --config discoveries/disc_0001/config.json --visualise
-```
-
-See `DISCOVERY_PLAN.md` for design details. Catalog: `discoveries/catalog.md`.
 
 ## Interactive UI
 
@@ -142,22 +101,53 @@ python server.py
 # open http://127.0.0.1:8765
 ```
 
-Sidebar sliders for every Config field; start/pause/reset buttons; live grid + alive/dead/loss counters; speed slider; download-current-config button. Setting `n_steps` blank runs indefinitely. The UI auto-renders new Config fields without code changes — only `UI_FIELDS` in `ui_config.py` needs editing.
+Sidebar sliders for Config fields used in the report (A–F); start / pause / reset; live grid and counters; speed control; download-current-config. Blank `n_steps` runs indefinitely. New fields appear automatically once listed in `UI_FIELDS` (`ui_config.py`).
 
-### Experiment G terrain
+Experiment G terrain controls (presets, custom regions, click-to-paint islands) are commented out of the UI because G is extra relative to the report. The engine still supports them; uncomment the G block in `ui_config.py` / `static/index.html` to restore.
 
-Presets (`blobs`, `vertical_band`, …) are generated from knobs + `env_seed`. To place islands by hand, set `env_preset` to `custom` and list regions. Example: [`research/configs/g_custom_inland.json`](research/configs/g_custom_inland.json).
+## Automated config discovery
 
-```json
-"environment_heterogeneous": true,
-"env_preset": "custom",
-"env_regions": [
-  {"shape": "disk", "cy": 5, "cx": 7, "radius": 3, "kappa_R": 0, "kappa_E": 0},
-  {"shape": "disk", "cy": 10, "cx": 13, "radius": 3, "kappa_R": 0, "kappa_E": 0},
-  {"shape": "rect", "r0": 14, "c0": 3, "r1": 17, "c1": 7, "kappa_R": 0, "kappa_E": 0}
-]
+Search with learning on: simulate → prefilter obvious crashes → **Gemini Flash** judges the summary plot and proposes the next config. `--no-guided` is pure random; `--dry-run` uses a heuristic instead of the API.
+
+```bash
+pip install -r requirements-discovery.txt
+export GEMINI_API_KEY=...          # or GOOGLE_API_KEY, or a .env file
+
+python discover.py --max-cycles 30 --target-discoveries 5
+python discover.py --no-guided --max-cycles 30 --target-discoveries 5
+python discover.py --max-cycles 10 --dry-run --n-steps 500
+
+# Force a paper version; seed-only search keeps weights frozen
+python discover.py --version C --max-cycles 30 --target-discoveries 5
+python discover.py --version E --seed-only \
+  --base-config research/configs/benchmark_sym_w.json \
+  --target-discoveries 15 --max-cycles 400
 ```
 
-Shapes: `disk` (`cy`, `cx`, `radius`), `rect` (`r0,c0,r1,c1`, inclusive, wraps), `band` (`axis` `h`|`v`, `center`, `width`). Optional channels: `kappa_R`, `kappa_E`, `eta_R`, `eta_E`, `occupancy` (omit = leave unchanged). Occupancy off + `kappa_*=0` is a transfer-dead island cells can still live in.
+Saved finds go under `discoveries/` (or `discoveries_<version>/`) with `catalog.md`. Re-run one with:
 
-In the UI: Experiment G → Manual regions (JSON), or **click the grid** to drop a κ=0 disk. Download .json keeps the regions. `python run.py --config path.json --visualise` uses the same file.
+```bash
+python run.py --config discoveries/disc_0001/config.json --visualise
+```
+
+## Research comparisons
+
+Pairwise isolations, spatial frames, paired tests, and four-chunk reports:
+
+```bash
+python -m research.pipeline list
+python -m research.pipeline run --quick    # smoke
+python -m research.pipeline run            # frozen protocol (slow)
+```
+
+Ad-hoc version lists still use the suite:
+
+```bash
+python -m research.suite list
+python -m research.suite run --versions original,A
+python -m research.suite run --quick
+```
+
+Results land in `research_results/<run>/` (`INDEX.md` for the pipeline, `REPORT.md` for the suite). Details: [`research/README.md`](research/README.md).
+
+Standalone probes (`python -m experiments.exp1_frozen_vs_trained`, …) live in [`experiments/`](experiments/README.md).

@@ -39,15 +39,12 @@ G_NUMERICS = (
 
 
 def test_g_fields_in_ui_fields():
+    """G is implemented but hidden from the interactive UI (not in the report)."""
     names = {n for (n, *_rest) in UI_FIELDS}
     for name in G_BOOLS + G_NUMERICS + ("env_preset", "env_regions"):
-        assert name in names, f"{name} missing from UI_FIELDS"
-    kinds = {n: k for (n, _l, k, *_r) in UI_FIELDS}
-    assert kinds["env_preset"] == "choice"
-    assert kinds["env_regions"] == "json"
+        assert name not in names, f"{name} should be hidden from UI_FIELDS"
     for name in G_BOOLS:
-        assert kinds[name] == "bool", f"{name} should be kind bool, got {kinds[name]}"
-        assert name in UI_FIELD_GROUP
+        assert name not in UI_FIELD_GROUP
     print("test_g_fields_in_ui_fields OK")
 
 
@@ -56,14 +53,12 @@ def test_cfg_to_payload_includes_choices():
     assert payload["choices"]["env_preset"] == list(PRESETS)
     assert UI_CHOICES["env_preset"] == list(PRESETS)
     names = [f["name"] for f in payload["fields"]]
-    assert "env_preset" in names
-    preset_field = next(f for f in payload["fields"] if f["name"] == "env_preset")
-    assert preset_field["kind"] == "choice"
-    assert preset_field["group"] == "Experiment G"
+    assert "env_preset" not in names
     print("test_cfg_to_payload_includes_choices OK")
 
 
 def test_payload_to_cfg_bools_and_choice():
+    """G keys in a payload are ignored while those fields are hidden from the UI."""
     cfg = payload_to_cfg({
         "environment_heterogeneous": "1",
         "env_preset": "blobs",
@@ -72,11 +67,12 @@ def test_payload_to_cfg_bools_and_choice():
         "env_occupancy_blocks": "1",
         "N": "12",
     })
-    assert cfg.environment_heterogeneous is True
-    assert cfg.env_preset == "blobs"
-    assert cfg.env_n_blobs == 3
-    assert cfg.env_affect_R is False
-    assert cfg.env_occupancy_blocks is True
+    defaults = Config()
+    assert cfg.environment_heterogeneous is defaults.environment_heterogeneous
+    assert cfg.env_preset == defaults.env_preset
+    assert cfg.env_n_blobs == defaults.env_n_blobs
+    assert cfg.env_affect_R is defaults.env_affect_R
+    assert cfg.env_occupancy_blocks is defaults.env_occupancy_blocks
     assert cfg.N == 12
     assert cfg.env_regions is None
     print("test_payload_to_cfg_bools_and_choice OK")
@@ -96,9 +92,10 @@ def test_payload_to_cfg_native_and_empty_bools():
     assert cfg.learn is True
     assert cfg.learn_messages is False
     assert cfg.typed_votes is True
-    assert cfg.environment_heterogeneous is False
-    assert cfg.env_affect_R is True
-    assert cfg.env_affect_E is False
+    # G fields are not in UI_FIELDS, so payload values do not override defaults.
+    assert cfg.environment_heterogeneous is defaults.environment_heterogeneous
+    assert cfg.env_affect_R is defaults.env_affect_R
+    assert cfg.env_affect_E is defaults.env_affect_E
 
     empty = payload_to_cfg({
         "learn": "",
@@ -120,6 +117,7 @@ def test_payload_to_cfg_native_and_empty_bools():
 
 
 def test_payload_to_cfg_env_regions_json():
+    """env_regions is ignored while G is hidden from UI_FIELDS (no parse error)."""
     regions = [
         {"shape": "disk", "cy": 5, "cx": 7, "radius": 3, "kappa_R": 0, "kappa_E": 0},
     ]
@@ -128,26 +126,19 @@ def test_payload_to_cfg_env_regions_json():
         "env_preset": "custom",
         "env_regions": json.dumps(regions),
     })
-    assert cfg.env_preset == "custom"
-    assert cfg.env_regions == regions
+    defaults = Config()
+    assert cfg.env_preset == defaults.env_preset
+    assert cfg.env_regions is None
     cfg2 = payload_to_cfg({
         "environment_heterogeneous": 1,
         "env_preset": "custom",
         "env_regions": regions,
     })
-    assert cfg2.env_regions == regions
+    assert cfg2.env_regions is None
     cfg3 = payload_to_cfg({"env_regions": ""})
     assert cfg3.env_regions is None
-    try:
-        payload_to_cfg({"env_regions": "{not json"})
-        raise AssertionError("expected ValueError")
-    except ValueError as e:
-        assert "env_regions" in str(e)
-    try:
-        payload_to_cfg({"env_regions": '{"shape": "disk"}'})
-        raise AssertionError("expected ValueError")
-    except ValueError as e:
-        assert "list" in str(e)
+    payload_to_cfg({"env_regions": "{not json"})
+    payload_to_cfg({"env_regions": '{"shape": "disk"}'})
     print("test_payload_to_cfg_env_regions_json OK")
 
 
