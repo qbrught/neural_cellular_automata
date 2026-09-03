@@ -8,35 +8,35 @@ A 2D cellular automaton where each cell has a goal (reproduce or eliminate) and 
 
 ## How it works
 
-Each cell \(i\) holds an alive flag \(x_i\), an observable state \(s_i\), a memory \(h_i\), a goal \(g_i \in \{\text{reproduce}, \text{eliminate}\}\), and a communication rate \(\rho_i\). Two per-cell 1-hidden-layer MLPs run every step:
+Each cell $i$ holds an alive flag $x_i$, an observable state $s_i$, a memory $h_i$, a goal $g_i \in \{\text{reproduce}, \text{eliminate}\}$, and a communication rate $\rho_i$. Two per-cell 1-hidden-layer MLPs run every step:
 
-- **ψ** (message): on each outgoing Moore edge, emit a message vector plus typed votes \(v_{\text{help}}\) (kin) and \(v_{\text{harm}}\) (foe).
-- **f** (local update): propose a next \((s, h)\) from the cell’s own state and the aggregated incoming messages.
+- **ψ** (message): on each outgoing Moore edge, emit a message vector plus typed votes $v_{\text{help}}$ (kin) and $v_{\text{harm}}$ (foe).
+- **f** (local update): propose a next $(s, h)$ from the cell's own state and the aggregated incoming messages.
 
 The survival probability is a logistic of neighbourhood counts, routed votes, and a bounded *f-signal*:
 
-\[
+$$
 p_i = \sigma\!\big(
   w_0 + w_1 A_i + w_2 R_i + w_3 E_i
   + w_4^{\text{help}} V^{\text{kin}}_i
   + w_4^{\text{harm}} V^{\text{foe}}_i
   + w_5 \tanh(\mathbf{u}\cdot\tilde{s}_i)
 \big)
-\]
+$$
 
-\(A_i, R_i, E_i\) are alive / reproducer / eliminator neighbour counts. \(V^{\text{kin}}\) / \(V^{\text{foe}}\) are ρ-gated vote sums from same-goal vs opposite-goal neighbours. \(\tilde{s}_i\) is *f*’s proposed next state; \(\mathbf{u}\) is a fixed projection (sampled from `u_seed`). Hard update: \(x_i \leftarrow 1[p_i > 0.5]\).
+$A_i, R_i, E_i$ are alive / reproducer / eliminator neighbour counts. $V^{\text{kin}}$ / $V^{\text{foe}}$ are ρ-gated vote sums from same-goal vs opposite-goal neighbours. $\tilde{s}_i$ is *f*'s proposed next state; $\mathbf{u}$ is a fixed projection (sampled from `u_seed`). Hard update: $x_i \leftarrow 1[p_i > 0.5]$.
 
 Local loss (both types want themselves alive; they differ on neighbours):
 
-\[
+$$
 \ell_i = -p_i + \sum_{k \in \mathcal{N}(i)} c_{i,k}\, p_k
-\]
+$$
 
 Reproducers protect kin and pressure foes. Eliminators pressure everyone by default, or only prey when `predator_prey_loss` is on. SGD is per-cell and per-step; `learn=False` skips the gradient step entirely (both ψ and *f* stay frozen).
 
-**Locality.** Neighbour contributions to \(p\) are detached except for this cell’s own vote / f-signal. `loss.sum().backward()` therefore fills only that cell’s parameter slot. The message-vector head of ψ is frozen under the default Path-1 detaches (`learn_messages=False`); votes and the f-signal are the trained channels.
+**Locality.** Neighbour contributions to $p$ are detached except for this cell's own vote / f-signal. `loss.sum().backward()` therefore fills only that cell's parameter slot. The message-vector head of ψ is frozen under the default Path-1 detaches (`learn_messages=False`); votes and the f-signal are the trained channels.
 
-Weights \(w_0\ldots w_5\), goals (unless inheritance is on), \(\rho\), and \(\mathbf{u}\) are fixed at init. A single `Config.seed` makes a run bit-exact.
+Weights $w_0\ldots w_5$, goals (unless inheritance is on), $\rho$, and $\mathbf{u}$ are fixed at init. A single `Config.seed` makes a run bit-exact.
 
 ## Ablation flags
 
@@ -48,9 +48,9 @@ Config flags (also in the UI) isolate paper versions on a shared seed:
 | `predator_prey_loss` | B | Eliminators only pressure reproducer neighbours |
 | `goal_inheritance` | C | Birth cells adopt majority neighbour goal |
 | `goal_in_f` | D | Own goal is an input to *f* |
-| `coexistence_pressure` | F | Soft barrier on both types’ living mass |
+| `coexistence_pressure` | F | Soft barrier on both types' living mass |
 
-`original` is typed votes off (one indiscriminate vote channel). `E` is A plus symmetric \(w_2=w_3\). See [`research/README.md`](research/README.md) for the full registry (`C_only`, `D_fixed`, …).
+`original` is typed votes off (one indiscriminate vote channel). `E` is A plus symmetric $w_2=w_3$. See [`research/README.md`](research/README.md) for the full registry (`C_only`, `D_fixed`, …).
 
 **Experiment G** (frozen spatial maps: occupancy / κ / η-scale) is implemented in `environment.py` but was **not included in the report**. The interactive UI hides those controls. You can still enable it from a Config JSON via `python run.py --config …`.
 
@@ -65,17 +65,17 @@ dynamics.py            # message pass, local update, survival
 learning.py            # per-cell loss, locality SGD
 environment.py         # Experiment G overlay (frozen maps)
 simulate.py            # init → steps → trajectory.npz
-visualise.py           # summary / animation / final grid
-run.py                 # CLI
-server.py              # interactive UI
-simulation_engine.py   # background tick thread for the UI
-ui_config.py           # UI field metadata
-discover.py            # guided / random config search
-discovery/             # catalog, prefilter, VLM judge
-research/              # paper versions, suite, thesis pipeline
-experiments/           # one-off scientific probes
-tests/                 # unit tests
-static/                # UI frontend
+visualise.py            # summary / animation / final grid
+run.py                  # CLI
+server.py               # interactive UI
+simulation_engine.py    # background tick thread for the UI
+ui_config.py             # UI field metadata
+discover.py               # guided / random config search
+discovery/               # catalog, prefilter, VLM judge
+research/                 # paper versions, suite, thesis pipeline
+experiments/              # one-off scientific probes
+tests/                    # unit tests
+static/                   # UI frontend
 ```
 
 ## Quick start
