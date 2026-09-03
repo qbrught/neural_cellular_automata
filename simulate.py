@@ -81,6 +81,7 @@ def make_snapshot(
     stats: dict,
     include_vectors: bool,
 ) -> Snapshot:
+    """Copy one step's grid, goals, and loss stats onto CPU numpy arrays."""
     repro_alive = int((state.x * state.reproduce_mask().float()).sum().item())
     elim_alive = int((state.x * state.eliminate_mask().float()).sum().item())
     return Snapshot(

@@ -188,6 +188,7 @@ analysis, strategy, rationale, next_config
 
 @dataclass
 class JudgeResult:
+    """VLM judgment of one trial plus an optional next-config proposal."""
     interesting: bool
     novel: bool
     worth_saving: bool
@@ -202,14 +203,17 @@ class JudgeResult:
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Dataclass as a plain dict (for meta.json / catalog)."""
         return asdict(self)
 
 
 def _api_key() -> str | None:
+    """Gemini key from GEMINI_API_KEY or GOOGLE_API_KEY."""
     return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
 
 def _extract_json(text: str) -> dict[str, Any]:
+    """Parse the first JSON object in a model response (fenced or raw)."""
     text = text.strip()
     fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if fence:
@@ -223,6 +227,7 @@ def _extract_json(text: str) -> dict[str, Any]:
 
 
 def _ranges_block() -> str:
+    """Pretty-print guidable field ranges for the VLM prompt."""
     lines = []
     for k in GUIDABLE_FIELDS:
         lo, hi = FIELD_RANGES[k]
@@ -231,6 +236,7 @@ def _ranges_block() -> str:
 
 
 def _parse_result(data: dict[str, Any]) -> JudgeResult:
+    """Map a model JSON object onto JudgeResult; worth_saving requires interesting and novel."""
     interesting = bool(data.get("interesting"))
     novel = bool(data.get("novel"))
     worth = bool(data.get("worth_saving")) and interesting and novel
@@ -259,6 +265,7 @@ def _parse_result(data: dict[str, Any]) -> JudgeResult:
 
 
 def _is_inheritance_version(version: str | None) -> bool:
+    """True for C / C_only / inheritance aliases."""
     if not version:
         return False
     v = version.strip().lower().replace("-", "_")
@@ -266,6 +273,7 @@ def _is_inheritance_version(version: str | None) -> bool:
 
 
 def _is_symmetry_null_version(version: str | None) -> bool:
+    """True for E / A_sym (typed votes + w2=w3)."""
     if not version:
         return False
     v = version.strip().lower().replace("-", "_")
@@ -273,12 +281,14 @@ def _is_symmetry_null_version(version: str | None) -> bool:
 
 
 def _is_original_version(version: str | None) -> bool:
+    """True when searching the original (indiscriminate-vote) baseline."""
     if not version:
         return False
     return version.strip().lower() == "original"
 
 
 def _version_criteria(version: str | None, seed_only: bool = False) -> str:
+    """Extra judgment criteria injected into JUDGE_INSTRUCTIONS."""
     extra = ""
     if _is_inheritance_version(version):
         extra = (
@@ -317,6 +327,7 @@ def _version_criteria(version: str | None, seed_only: bool = False) -> str:
 
 
 def _system_brief(version: str | None, seed_only: bool = False) -> str:
+    """System prompt, plus version / seed-bank addenda when relevant."""
     brief = SYSTEM_BRIEF
     if _is_inheritance_version(version):
         brief = brief + "\n" + SYSTEM_BRIEF_C
@@ -351,6 +362,7 @@ def _build_user_text(
     version: str | None = None,
     seed_only: bool = False,
 ) -> str:
+    """Assemble the per-trial user prompt (instructions + history + knobs + metrics)."""
     keys = ", ".join(GUIDABLE_FIELDS)
     instructions = JUDGE_INSTRUCTIONS.format(
         keys=keys,
@@ -475,6 +487,7 @@ def _call_gemini(
     temperature: float,
     system_instruction: str = SYSTEM_BRIEF,
 ) -> dict[str, Any]:
+    """Call Gemini; prefer google.genai, fall back to google.generativeai."""
     try:
         return _call_google_genai(
             model=model,
@@ -504,6 +517,7 @@ def _call_google_genai(
     temperature: float,
     system_instruction: str = SYSTEM_BRIEF,
 ) -> dict[str, Any]:
+    """Gemini via the ``google.genai`` client; returns parsed JSON."""
     from google import genai
     from google.genai import types
 
@@ -543,6 +557,7 @@ def _call_generativeai(
     temperature: float,
     system_instruction: str = SYSTEM_BRIEF,
 ) -> dict[str, Any]:
+    """Gemini via the legacy ``google.generativeai`` SDK; returns parsed JSON."""
     import google.generativeai as genai
 
     genai.configure(api_key=api_key)

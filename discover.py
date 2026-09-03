@@ -37,6 +37,7 @@ from discovery.loop import LoopConfig, run_discovery  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """CLI flags for guided / random / seed-only discovery searches."""
     p = argparse.ArgumentParser(
         description=(
             "Discover interesting NCSA configs via guided VLM search "
@@ -165,6 +166,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Validate flags, build a LoopConfig, and run the discovery loop."""
     _load_dotenv()
     args = parse_args(argv)
 

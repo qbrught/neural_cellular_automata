@@ -42,10 +42,12 @@ from torch import Tensor
 
 
 def psi_in_dim(d: int) -> int:
+    """ψ input width: sender/receiver (s, h, x, goal) → ``4d + 4``."""
     return 4 * d + 4  # +2 for sender goal, receiver goal
 
 
 def psi_out_dim(d: int) -> int:
+    """ψ output width: message vector (d) + help vote + harm vote."""
     return d + 2  # message vector (d) + help vote (1) + harm vote (1)
 
 
@@ -59,6 +61,7 @@ def f_in_dim(d: int) -> int:
 
 
 def f_out_dim(d: int) -> int:
+    """f output width: proposed next state (d) + next memory (d)."""
     return 2 * d  # new state (d) + new memory (d)
 
 
@@ -79,17 +82,20 @@ class Parameters:
     f_b2: Tensor  # (N, N, out_f)
 
     def tensors(self) -> list[Tensor]:
+        """All eight weight/bias tensors, ψ then f."""
         return [
             self.psi_W1, self.psi_b1, self.psi_W2, self.psi_b2,
             self.f_W1, self.f_b1, self.f_W2, self.f_b2,
         ]
 
     def requires_grad_(self, flag: bool = True) -> "Parameters":
+        """Set ``requires_grad`` on every tensor; returns self."""
         for t in self.tensors():
             t.requires_grad_(flag)
         return self
 
     def detach_clone(self) -> "Parameters":
+        """Deep copy with no autograd history (for checkpoints)."""
         return Parameters(
             psi_W1=self.psi_W1.detach().clone(),
             psi_b1=self.psi_b1.detach().clone(),
@@ -102,6 +108,7 @@ class Parameters:
         )
 
     def save(self, path) -> None:
+        """Save all weights to a torch checkpoint."""
         torch.save({
             "psi_W1": self.psi_W1, "psi_b1": self.psi_b1,
             "psi_W2": self.psi_W2, "psi_b2": self.psi_b2,
@@ -111,6 +118,7 @@ class Parameters:
 
     @classmethod
     def load(cls, path) -> "Parameters":
+        """Load a checkpoint written by ``save``."""
         d = torch.load(path, weights_only=True)
         return cls(**d)
 

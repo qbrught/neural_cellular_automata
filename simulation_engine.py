@@ -1,4 +1,6 @@
 
+"""Background simulation thread that streams frames to the interactive UI."""
+
 from __future__ import annotations
 
 import asyncio
@@ -39,6 +41,7 @@ class SimulationEngine:
     """
 
     def __init__(self, initial_cfg: Config):
+        """Build an initial grid so a snapshot exists before the first start."""
         self._lock = threading.RLock()
         self._cfg = initial_cfg
         self._state = None
@@ -59,6 +62,7 @@ class SimulationEngine:
     # ----- state management (locked) -----
 
     def _reset_locked(self) -> None:
+        """Rebuild state/params/u/env from the current config. Caller holds the lock."""
         log.info("Reset with cfg: %s", self._cfg)
         grid = build_grid(self._cfg)
         self._state = grid.state
@@ -68,6 +72,7 @@ class SimulationEngine:
         self._step_idx = 0
 
     def reset(self) -> None:
+        """Stop ticking, rebuild the grid, then resume if it was running."""
         with self._lock:
             was_running = self._running
             self._running = False  # stop ticking during reset
@@ -77,6 +82,7 @@ class SimulationEngine:
         self._broadcast_snapshot()
 
     def start(self) -> None:
+        """Begin (or resume) the background tick thread."""
         with self._lock:
             if self._running:
                 return
@@ -87,10 +93,12 @@ class SimulationEngine:
                 self._thread.start()
 
     def pause(self) -> None:
+        """Stop stepping; the thread stays alive and polls for resume."""
         with self._lock:
             self._running = False
 
     def shutdown(self) -> None:
+        """Stop the tick thread and wait briefly for it to exit."""
         self._stop.set()
         with self._lock:
             self._running = False
@@ -110,29 +118,35 @@ class SimulationEngine:
         self._broadcast_snapshot()
 
     def set_speed(self, steps_per_second: float) -> None:
+        """Clamp the tick rate to [0.1, 500] steps per second."""
         with self._lock:
             self._steps_per_second = max(0.1, min(500.0, float(steps_per_second)))
 
     def get_config(self) -> Config:
+        """Current Config (may be mutated by later set_config)."""
         with self._lock:
             return self._cfg
 
     # ----- subscription -----
 
     def attach_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Remember the FastAPI event loop used to enqueue WebSocket frames."""
         self._main_loop = loop
 
     def subscribe(self) -> asyncio.Queue:
+        """Register a client queue (maxsize 2; slow clients drop frames)."""
         q: asyncio.Queue = asyncio.Queue(maxsize=2)
         self._subscribers.add(q)
         return q
 
     def unsubscribe(self, q: asyncio.Queue) -> None:
+        """Drop a client queue (e.g. on WebSocket disconnect)."""
         self._subscribers.discard(q)
 
     # ----- the actual tick -----
 
     def _tick_loop(self) -> None:
+        """Background loop: one CA step per tick, frames throttled to ~30 fps."""
         log.info("Tick loop started")
         last_emit = 0.0
         while not self._stop.is_set():
@@ -257,6 +271,7 @@ class SimulationEngine:
         return frame
 
     def _broadcast_frame(self, frame: dict) -> None:
+        """Push a frame onto every subscriber queue from the tick thread."""
         loop = self._main_loop
         if loop is None:
             return

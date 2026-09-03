@@ -35,6 +35,11 @@ GOAL_ELIMINATE = 1
 
 @dataclass
 class State:
+    """Per-cell tensors for one timestep of the grid.
+
+    ``x``, ``s``, ``h`` update every step. ``goals`` are fixed unless
+    ``goal_inheritance`` is on; ``rho`` is always fixed.
+    """
     x: Tensor      # (N, N)         alive flag, float in {0.0, 1.0}
     s: Tensor      # (N, N, d)      observable state
     h: Tensor      # (N, N, d)      memory
@@ -43,10 +48,12 @@ class State:
 
     @property
     def N(self) -> int:
+        """Grid side length."""
         return self.x.shape[0]
 
     @property
     def d(self) -> int:
+        """Observable / memory vector width."""
         return self.s.shape[-1]
 
     def reproduce_mask(self) -> Tensor:

@@ -18,11 +18,13 @@ SATURATION_MIN_STEPS = 50
 
 @dataclass
 class PrefilterResult:
+    """Cheap reject/pass decision plus a short reason string."""
     passed: bool
     reason: str
 
 
 def metrics_from_trajectory(traj_path: Path) -> dict[str, np.ndarray]:
+    """Load alive / repro / elim / step arrays from a trajectory.npz."""
     traj = np.load(traj_path)
     return {
         "alive": traj["alive_count"].astype(np.int32),

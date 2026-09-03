@@ -48,6 +48,7 @@ def living_radius(x: torch.Tensor) -> float:
 
 
 def main():
+    """Grow from a central seed, plot radius/alive, and print a growth verdict."""
     OUT.mkdir(parents=True, exist_ok=True)
     cfg = Config(N=GRID_N, n_steps=STEPS, seed=7,
                  w0=-0.05, w1=0.4, w2=0.4, w3=-0.4, w4_help=0.6, w4_harm=0.6, w5=0.3, eta=0.08,

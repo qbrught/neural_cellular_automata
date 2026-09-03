@@ -55,21 +55,25 @@ if STATIC_DIR.exists():
 
 @app.on_event("startup")
 async def _on_startup() -> None:
+    """Bind the engine to this process's asyncio loop for WS broadcasts."""
     engine.attach_loop(asyncio.get_running_loop())
 
 
 @app.on_event("shutdown")
 async def _on_shutdown() -> None:
+    """Stop the simulation thread when the server exits."""
     engine.shutdown()
 
 
 @app.get("/")
 async def root() -> FileResponse:
+    """Serve the interactive UI."""
     return FileResponse(str(STATIC_DIR / "index.html"))
 
 
 @app.get("/api/config")
 async def get_config():
+    """Current Config plus UI field metadata for the form."""
     return cfg_to_payload(engine.get_config())
 
 
@@ -93,12 +97,14 @@ async def post_config(payload: dict):
 
 @app.post("/api/start")
 async def post_start():
+    """Resume the simulation tick loop."""
     engine.start()
     return {"ok": True, "running": True}
 
 
 @app.post("/api/pause")
 async def post_pause():
+    """Pause the simulation without resetting state."""
     engine.pause()
     return {"ok": True, "running": False}
 
@@ -119,6 +125,7 @@ async def post_reset(payload: dict | None = None):
 
 @app.post("/api/speed")
 async def post_speed(payload: dict):
+    """Set the engine tick rate. Body: ``{"steps_per_second": float}``."""
     sps = float(payload.get("steps_per_second", 30.0))
     engine.set_speed(sps)
     return {"ok": True, "steps_per_second": sps}
@@ -126,6 +133,7 @@ async def post_speed(payload: dict):
 
 @app.get("/api/config/download")
 async def download_config():
+    """Download the current Config as JSON."""
     cfg = engine.get_config()
     body = json.dumps(asdict(cfg), indent=2).encode("utf-8")
     return Response(
@@ -137,6 +145,7 @@ async def download_config():
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
+    """Stream per-step frames as JSON until the client disconnects."""
     await ws.accept()
     q = engine.subscribe()
     # Send current snapshot immediately.
@@ -154,6 +163,7 @@ async def ws_endpoint(ws: WebSocket):
 # CLI entry: `python server.py`
 
 def main() -> None:
+    """Launch uvicorn on 127.0.0.1:8765."""
     import uvicorn
     uvicorn.run("server:app", host="127.0.0.1", port=8765, reload=False)
 

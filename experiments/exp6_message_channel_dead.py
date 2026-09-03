@@ -110,6 +110,7 @@ SEED = 17
 
 
 def _world(seed: int = SEED):
+    """Fully-alive grid with noisy s/h, used so vote/f heads actually receive gradient."""
     cfg = Config(
         N=GRID_N, d=D, hidden=HIDDEN, seed=seed, n_steps=STEPS,
         init_alive_prob=1.0, learn=True, typed_votes=True,
@@ -130,12 +131,14 @@ def _world(seed: int = SEED):
 
 
 def _zero(params):
+    """Zero all parameter grads in place."""
     for t in params.tensors():
         if t.grad is not None:
             t.grad.zero_()
 
 
 def head_grad_masses(params, d: int) -> dict[str, float]:
+    """L1 mass of grads split by ψ message/vote heads and f state/memory heads."""
     gW2, gb2 = params.psi_W2.grad, params.psi_b2.grad
     gFW2, gFb2 = params.f_W2.grad, params.f_b2.grad
 
@@ -159,6 +162,7 @@ def head_grad_masses(params, d: int) -> dict[str, float]:
 
 
 def probe_one_step_grads(cfg, state, params, u) -> dict[str, float]:
+    """One forward + local-loss backward; return per-head gradient masses."""
     step = forward_step(state, params, u, cfg)
     losses = compute_local_losses(state, step, cfg)
     _zero(params)
@@ -190,6 +194,7 @@ def counterfactual_live_M_grad(cfg, state, params, u) -> float:
 
 
 def forward_ablation(cfg, state, params, u) -> dict[str, float]:
+    """Zero the message head and measure change in s_proposed vs vote sums."""
     step1 = forward_step(state, params, u, cfg)
     p2 = params.detach_clone()
     p2.psi_W2[..., :cfg.d] = 0
@@ -211,6 +216,7 @@ def forward_ablation(cfg, state, params, u) -> dict[str, float]:
 
 
 def run_drift(cfg, state, params, u, steps: int):
+    """Cumulative L1 drift of each ψ/f head from init, plus alive count."""
     d = cfg.d
     snaps = {
         "psi_msg": [], "psi_help": [], "psi_harm": [], "psi_trunk": [],
@@ -262,6 +268,7 @@ def write_report(
     cf_msg_grad: float,
     cfg: Config,
 ) -> None:
+    """Write a markdown report of gradient masses, drift, and ablation deltas."""
     final = {k: float(v[-1]) for k, v in drift.items() if k != "alive"}
     lines = [
         "# Experiment 6 — Message channel is not learned",
@@ -411,6 +418,7 @@ def write_report(
 
 
 def plot_summary(drift: dict, out_png: Path) -> None:
+    """Plot cumulative L1 drift of ψ and f heads (message/memory should stay flat)."""
     t = np.arange(len(drift["psi_msg"]))
     fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
 
@@ -451,6 +459,7 @@ def plot_summary(drift: dict, out_png: Path) -> None:
 
 
 def main():
+    """Probe message-head grads, run a drift series, and write the report."""
     OUT.mkdir(parents=True, exist_ok=True)
     cfg, state, params, u = _world()
 

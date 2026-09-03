@@ -52,18 +52,22 @@ MUTATE_SIGMA = {
 
 
 def _uniform(rng: random.Random, lo: float, hi: float) -> float:
+    """Uniform draw in [lo, hi], rounded to 4 decimals."""
     return round(rng.uniform(lo, hi), 4)
 
 
 def _log_uniform(rng: random.Random, lo: float, hi: float) -> float:
+    """Log-uniform draw in [lo, hi] (for eta / init noise)."""
     return round(math.exp(rng.uniform(math.log(lo), math.log(hi))), 6)
 
 
 def _clip(x: float, lo: float, hi: float) -> float:
+    """Clamp x into [lo, hi]."""
     return max(lo, min(hi, x))
 
 
 def _rand_seed(rng: random.Random) -> int:
+    """Non-negative 31-bit seed."""
     return rng.randint(0, 2**31 - 1)
 
 
@@ -309,6 +313,7 @@ def _mutate_config(
     N: int,
     device: str,
 ) -> Config:
+    """Gaussian jitter of survival knobs around ``base``, then resample seeds."""
     def jitter(name: str, value: float, lo: float, hi: float) -> float:
         sigma = MUTATE_SIGMA[name]
         return round(_clip(value + rng.gauss(0.0, sigma), lo, hi), 4)

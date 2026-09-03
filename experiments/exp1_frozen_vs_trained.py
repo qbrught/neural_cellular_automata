@@ -28,6 +28,7 @@ GRID_N = 30
 
 
 def run_group(learn: bool) -> list[dict]:
+    """Run N_SEEDS simulations with learning on or off; print tail stats."""
     results = []
     for seed in range(N_SEEDS):
         cfg = Config(N=GRID_N, n_steps=STEPS, seed=seed,
@@ -41,10 +42,12 @@ def run_group(learn: bool) -> list[dict]:
 
 
 def stack(results, key):
+    """Stack one metric across seeds into an array of shape (seeds, steps)."""
     return np.stack([r[key] for r in results])  # (seeds, steps)
 
 
 def main():
+    """Compare trained vs frozen alive-count trajectories and write summary.png."""
     OUT.mkdir(parents=True, exist_ok=True)
     print("Trained group:")
     trained = run_group(learn=True)

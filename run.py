@@ -19,6 +19,7 @@ from simulate import run as run_simulation
 
 
 def parse_args() -> argparse.Namespace:
+    """CLI flags: config path, common overrides, and visualisation toggles."""
     p = argparse.ArgumentParser(description="Run an NCSA simulation.")
     p.add_argument("--config", type=Path, default=None,
                    help="Path to a Config JSON file. If omitted, uses defaults.")
@@ -44,6 +45,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Load config, run the simulation, optionally render plots."""
     args = parse_args()
     cfg = Config.load(args.config) if args.config else Config()
 

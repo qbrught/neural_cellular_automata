@@ -14,6 +14,10 @@ from pathlib import Path
 
 @dataclass
 class Config:
+    """All run hyperparameters, seed, and output location.
+
+    Saved as JSON next to every trajectory so a run is exactly reproducible.
+    """
     # ---- Grid ----
     N: int = 20  # grid side length (N x N cells)
 
@@ -109,6 +113,7 @@ class Config:
     run_name: str = field(default="")
 
     def __post_init__(self) -> None:
+        """Validate ranges. Called again after CLI / UI overrides."""
         if self.N <= 0:
             raise ValueError(f"N must be positive, got {self.N}")
         if self.d <= 0:
@@ -177,9 +182,11 @@ class Config:
     # ---- Serialisation ----
 
     def to_dict(self) -> dict:
+        """Plain dict of all fields (JSON-serialisable)."""
         return asdict(self)
 
     def save(self, path: str | Path) -> None:
+        """Write this config as indented JSON, creating parent dirs."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w") as f:
@@ -187,6 +194,7 @@ class Config:
 
     @classmethod
     def load(cls, path: str | Path) -> "Config":
+        """Load JSON, migrating legacy ``w4`` and dropping unknown keys."""
         with Path(path).open("r") as f:
             data = json.load(f)
         # Migrate pre-step-A configs that used a single w4 vote weight.

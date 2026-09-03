@@ -80,8 +80,10 @@ class Grid:
 
     @property
     def N(self) -> int:
+        """Grid side length."""
         return self.state.N
 
     @property
     def d(self) -> int:
+        """Observable / memory vector width."""
         return self.state.d

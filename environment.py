@@ -81,6 +81,11 @@ PRESET_KNOBS: dict[str, tuple[str, ...]] = {
 
 @dataclass
 class Environment:
+    """Frozen spatial maps on the N×N torus (Experiment G).
+
+    Occupancy is a habitable mask; kappa is transfer conductivity; eta_scale
+    multiplies the SGD step. All tensors are (N, N) and never trained.
+    """
     occupancy: Tensor       # (N, N) float {0,1}, requires_grad=False
     kappa_R: Tensor
     kappa_E: Tensor
@@ -89,6 +94,7 @@ class Environment:
     extras: dict[str, Tensor] = field(default_factory=dict)
 
     def tensors(self) -> list[Tensor]:
+        """Occupancy, kappa, eta-scale maps, then any extras."""
         return [
             self.occupancy, self.kappa_R, self.kappa_E,
             self.eta_scale_R, self.eta_scale_E, *self.extras.values(),
@@ -96,12 +102,14 @@ class Environment:
 
 
 def _ones(N: int, device: str, dtype: torch.dtype) -> Tensor:
+    """Frozen (N, N) ones — identity occupancy / conductivity / η scale."""
     t = torch.ones(N, N, device=device, dtype=dtype)
     t.requires_grad_(False)
     return t
 
 
 def _false_mask(N: int, device: str) -> Tensor:
+    """Boolean (N, N) False — empty dead-region mask."""
     return torch.zeros(N, N, device=device, dtype=torch.bool)
 
 
@@ -193,6 +201,7 @@ def apply_occupancy(x: Tensor, env: Environment | None) -> Tensor:
 
 
 def _band_mask(N: int, indices: list[int], axis: str, device: str) -> Tensor:
+    """Boolean band: ``axis='v'`` paints columns, ``'h'`` paints rows."""
     mask = _false_mask(N, device)
     if not indices:
         return mask
@@ -207,12 +216,14 @@ def _band_mask(N: int, indices: list[int], axis: str, device: str) -> Tensor:
 def _kappa_from_mask(
     dead_mask: Tensor, kappa_lo: float, kappa_hi: float, dtype: torch.dtype,
 ) -> Tensor:
+    """κ = κ_lo on the dead mask, κ_hi elsewhere."""
     lo = torch.tensor(kappa_lo, device=dead_mask.device, dtype=dtype)
     hi = torch.tensor(kappa_hi, device=dead_mask.device, dtype=dtype)
     return torch.where(dead_mask, lo, hi)
 
 
 def _blob_centers(cfg: Config, gen: torch.Generator) -> Tensor:
+    """Sample ``env_n_blobs`` integer (row, col) centers on CPU."""
     n = int(cfg.env_n_blobs)
     return torch.randint(0, cfg.N, (n, 2), generator=gen, device="cpu")
 
@@ -220,6 +231,7 @@ def _blob_centers(cfg: Config, gen: torch.Generator) -> Tensor:
 def _union_disks(
     N: int, centers: Tensor, radius: float, device: str,
 ) -> Tensor:
+    """Boolean union of wrap-aware disks of the given radius."""
     mask = _false_mask(N, device)
     if centers.numel() == 0:
         return mask
@@ -257,6 +269,7 @@ def _soft_blob_kappa(
 
 
 def _region_mask(region: dict, N: int, device: str, index: int) -> Tensor:
+    """Boolean mask for one custom ``env_regions`` entry (rect / disk / band)."""
     shape = region.get("shape")
     if shape == "rect":
         for key in ("r0", "c0", "r1", "c1"):
@@ -298,6 +311,7 @@ def _region_mask(region: dict, N: int, device: str, index: int) -> Tensor:
 
 
 def _channel_present(region: dict, key: str) -> bool:
+    """True if the custom region dict sets this channel to a non-None value."""
     return key in region and region[key] is not None
 
 

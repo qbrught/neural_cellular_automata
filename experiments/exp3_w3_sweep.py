@@ -29,6 +29,7 @@ GRID_N = 30
 
 
 def main():
+    """Sweep w3, plot settled R/E/total alive, and write summary.png."""
     OUT.mkdir(parents=True, exist_ok=True)
     rows = []
     for w3 in W3_VALUES:

@@ -188,6 +188,7 @@ def _composite_env_rgb(
 
 
 def _traj_has_env(traj) -> bool:
+    """True if this .npz stores Experiment G environment maps."""
     return "kappa_R" in traj.files and "occupancy" in traj.files
 
 

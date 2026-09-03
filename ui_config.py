@@ -78,6 +78,7 @@ UI_FIELD_GROUP = {
 
 
 def cfg_to_payload(cfg: Config) -> dict:
+    """Serialize Config plus field metadata, choices, and preset knobs for the UI."""
     return {
         "fields": [
             {
@@ -152,6 +153,7 @@ def payload_to_cfg(values: dict) -> Config:
 
 
 def _parse_json_field(name: str, v):
+    """Parse a JSON-list UI field; empty / null → None. Rejects non-lists."""
     if v is None or v == "" or v == "null":
         return None
     if isinstance(v, (list, dict)):

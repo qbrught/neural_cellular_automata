@@ -28,6 +28,7 @@ from discovery.sample import (
 
 @dataclass
 class LoopStats:
+    """Counters printed at the end of a discovery run."""
     cycles: int = 0
     prefilter_rejects: int = 0
     vlm_calls: int = 0
@@ -40,6 +41,7 @@ class LoopStats:
 
 @dataclass
 class LoopConfig:
+    """Knobs for ``run_discovery`` (cycle budget, sampling, version, seed-only)."""
     max_cycles: int | None
     target_discoveries: int | None
     n_steps: int
@@ -65,6 +67,7 @@ class LoopConfig:
 
 @dataclass
 class TrialRecord:
+    """One cycle's knobs and outcome, kept as a short history for the VLM."""
     cycle: int
     knobs: dict[str, Any]
     outcome: str
@@ -73,6 +76,7 @@ class TrialRecord:
     strategy: str = ""
 
     def history_line(self) -> str:
+        """Single-line summary used in the VLM prompt history block."""
         k = self.knobs
         core = (
             f"w0={k.get('w0')} w1={k.get('w1')} w2={k.get('w2')} "
@@ -88,6 +92,7 @@ class TrialRecord:
 
 
 def _should_stop(cfg: LoopConfig, stats: LoopStats, catalog: Catalog) -> str | None:
+    """Stop reason if a budget is exhausted, else None."""
     if cfg.max_cycles is not None and stats.cycles >= cfg.max_cycles:
         return f"reached max_cycles={cfg.max_cycles}"
     if cfg.target_discoveries is not None and catalog.count >= cfg.target_discoveries:
@@ -115,6 +120,7 @@ def _promote_trial(
     version: str | None = None,
     labeled_one_liner: str | None = None,
 ) -> None:
+    """Copy trial artifacts into a disc_* folder and write note / VERSION / meta."""
     dest.mkdir(parents=True, exist_ok=True)
     for name in ("config.json", "summary.png", "trajectory.npz", "params_final.pt"):
         src = trial_dir / name
@@ -222,6 +228,7 @@ def _save_discovery(
 
 
 def _metrics_summary(metrics: dict[str, np.ndarray], N: int) -> str:
+    """Compact alive/repro/elim stats string for the VLM prompt."""
     alive = metrics["alive"]
     repro = metrics["repro"]
     elim = metrics["elim"]
@@ -251,6 +258,7 @@ def _random_or_mutate(
     catalog: Catalog,
     loop_cfg: LoopConfig,
 ) -> Config:
+    """Seed-only resample, or random/mutate a catalogued config."""
     if loop_cfg.seed_only:
         return resample_seed(
             _frozen_base(loop_cfg),
@@ -324,6 +332,7 @@ def _catalog_for_version(root: Path, version: str | None) -> Catalog:
 
 
 def run_discovery(loop_cfg: LoopConfig) -> LoopStats:
+    """Sample → simulate → prefilter → judge/guide → save, until a stop budget."""
     root = Path(loop_cfg.output_root)
     root.mkdir(parents=True, exist_ok=True)
     trials_root = root / "trials"
