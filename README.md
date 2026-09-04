@@ -56,7 +56,7 @@ Config flags (also in the UI) isolate paper versions on a shared seed:
 
 ## Project structure
 
-```
+\`\`\`
 config.py              # hyperparameters, seed, version flags
 parameters.py          # per-cell ψ / f MLP weights, batched forward
 state.py               # x, s, h, goals, rho
@@ -65,41 +65,41 @@ dynamics.py            # message pass, local update, survival
 learning.py            # per-cell loss, locality SGD
 environment.py         # Experiment G overlay (frozen maps)
 simulate.py            # init → steps → trajectory.npz
-visualise.py            # summary / animation / final grid
-run.py                  # CLI
-server.py               # interactive UI
-simulation_engine.py    # background tick thread for the UI
-ui_config.py             # UI field metadata
-discover.py               # guided / random config search
-discovery/               # catalog, prefilter, VLM judge
-research/                 # paper versions, suite, thesis pipeline
-experiments/              # one-off scientific probes
-tests/                    # unit tests
-static/                   # UI frontend
-```
+visualise.py           # summary / animation / final grid
+run.py                 # CLI
+server.py              # interactive UI
+simulation_engine.py   # background tick thread for the UI
+ui_config.py            # UI field metadata
+discover.py              # guided / random config search
+discovery/              # catalog, prefilter, VLM judge
+research/                # paper versions, suite, thesis pipeline
+experiments/             # one-off scientific probes
+tests/                   # unit tests
+static/                  # UI frontend
+\`\`\`
 
 ## Quick start
 
-```bash
+\`\`\`bash
 pip install torch numpy matplotlib
 python run.py --visualise                         # defaults
 python run.py --seed 7 --n-steps 500 --visualise  # overrides
 python run.py --config path/to/config.json --visualise
-```
+\`\`\`
 
 Writes `runs/<name>/` with `config.json`, `trajectory.npz`, `params_final.pt`, and (with `--visualise`) `summary.svg` plus `animation.gif`. Extra plots: `--final-grid`, `--alive-count`.
 
-```bash
+\`\`\`bash
 python -m pytest tests/ -q
-```
+\`\`\`
 
 ## Interactive UI
 
-```bash
+\`\`\`bash
 pip install fastapi uvicorn websockets
 python server.py
 # open http://127.0.0.1:8765
-```
+\`\`\`
 
 Sidebar sliders for Config fields used in the report (A–F); start / pause / reset; live grid and counters; speed control; download-current-config. Blank `n_steps` runs indefinitely. New fields appear automatically once listed in `UI_FIELDS` (`ui_config.py`).
 
@@ -109,7 +109,7 @@ Experiment G terrain controls (presets, custom regions, click-to-paint islands) 
 
 Search with learning on: simulate → prefilter obvious crashes → **Gemini Flash** judges the summary plot and proposes the next config. `--no-guided` is pure random; `--dry-run` uses a heuristic instead of the API.
 
-```bash
+\`\`\`bash
 pip install -r requirements-discovery.txt
 export GEMINI_API_KEY=...          # or GOOGLE_API_KEY, or a .env file
 
@@ -122,31 +122,31 @@ python discover.py --version C --max-cycles 30 --target-discoveries 5
 python discover.py --version E --seed-only \
   --base-config research/configs/benchmark_sym_w.json \
   --target-discoveries 15 --max-cycles 400
-```
+\`\`\`
 
 Saved finds go under `discoveries/` (or `discoveries_<version>/`) with `catalog.md`. Re-run one with:
 
-```bash
+\`\`\`bash
 python run.py --config discoveries/disc_0001/config.json --visualise
-```
+\`\`\`
 
 ## Research comparisons
 
 Pairwise isolations, spatial frames, paired tests, and four-chunk reports:
 
-```bash
+\`\`\`bash
 python -m research.pipeline list
 python -m research.pipeline run --quick    # smoke
 python -m research.pipeline run            # frozen protocol (slow)
-```
+\`\`\`
 
 Ad-hoc version lists still use the suite:
 
-```bash
+\`\`\`bash
 python -m research.suite list
 python -m research.suite run --versions original,A
 python -m research.suite run --quick
-```
+\`\`\`
 
 Results land in `research_results/<run>/` (`INDEX.md` for the pipeline, `REPORT.md` for the suite). Details: [`research/README.md`](research/README.md).
 
