@@ -15,22 +15,22 @@ Each cell $i$ holds an alive flag $x_i$, an observable state $s_i$, a memory $h_
 
 The survival probability is a logistic of neighbourhood counts, routed votes, and a bounded *f-signal*:
 
-$$
-p_i = \sigma\!\big(
+```math
+p_i = \sigma\big(
   w_0 + w_1 A_i + w_2 R_i + w_3 E_i
-  + w_4^{\text{help}} V^{\text{kin}}_i
-  + w_4^{\text{harm}} V^{\text{foe}}_i
+  + w_4^{\mathrm{help}} V^{\mathrm{kin}}_i
+  + w_4^{\mathrm{harm}} V^{\mathrm{foe}}_i
   + w_5 \tanh(\mathbf{u}\cdot\tilde{s}_i)
 \big)
-$$
+```
 
 $A_i, R_i, E_i$ are alive / reproducer / eliminator neighbour counts. $V^{\text{kin}}$ / $V^{\text{foe}}$ are ρ-gated vote sums from same-goal vs opposite-goal neighbours. $\tilde{s}_i$ is *f*'s proposed next state; $\mathbf{u}$ is a fixed projection (sampled from `u_seed`). Hard update: $x_i \leftarrow 1[p_i > 0.5]$.
 
 Local loss (both types want themselves alive; they differ on neighbours):
 
-$$
+```math
 \ell_i = -p_i + \sum_{k \in \mathcal{N}(i)} c_{i,k}\, p_k
-$$
+```
 
 Reproducers protect kin and pressure foes. Eliminators pressure everyone by default, or only prey when `predator_prey_loss` is on. SGD is per-cell and per-step; `learn=False` skips the gradient step entirely (both ψ and *f* stay frozen).
 
@@ -156,26 +156,26 @@ tests/
 
 ## Quick start
 
-\`\`\`bash
+```bash
 pip install torch numpy matplotlib
 python run.py --visualise                         # defaults
 python run.py --seed 7 --n-steps 500 --visualise  # overrides
 python run.py --config path/to/config.json --visualise
-\`\`\`
+```
 
 Writes `runs/<name>/` with `config.json`, `trajectory.npz`, `params_final.pt`, and (with `--visualise`) `summary.svg` plus `animation.gif`. Extra plots: `--final-grid`, `--alive-count`.
 
-\`\`\`bash
+```bash
 python -m pytest tests/ -q
-\`\`\`
+```
 
 ## Interactive UI
 
-\`\`\`bash
+```bash
 pip install fastapi uvicorn websockets
 python server.py
 # open http://127.0.0.1:8765
-\`\`\`
+```
 
 Sidebar sliders for Config fields used in the report (A–F); start / pause / reset; live grid and counters; speed control; download-current-config. Blank `n_steps` runs indefinitely. New fields appear automatically once listed in `UI_FIELDS` (`ui_config.py`).
 
@@ -185,7 +185,7 @@ Experiment G terrain controls (presets, custom regions, click-to-paint islands) 
 
 Search with learning on: simulate → prefilter obvious crashes → **Gemini Flash** judges the summary plot and proposes the next config. `--no-guided` is pure random; `--dry-run` uses a heuristic instead of the API.
 
-\`\`\`bash
+```bash
 pip install -r requirements-discovery.txt
 export GEMINI_API_KEY=...          # or GOOGLE_API_KEY, or a .env file
 
@@ -198,31 +198,31 @@ python discover.py --version C --max-cycles 30 --target-discoveries 5
 python discover.py --version E --seed-only \
   --base-config research/configs/benchmark_sym_w.json \
   --target-discoveries 15 --max-cycles 400
-\`\`\`
+```
 
 Saved finds go under `discoveries/` (or `discoveries_<version>/`) with `catalog.md`. Re-run one with:
 
-\`\`\`bash
+```bash
 python run.py --config discoveries/disc_0001/config.json --visualise
-\`\`\`
+```
 
 ## Research comparisons
 
 Pairwise isolations, spatial frames, paired tests, and four-chunk reports:
 
-\`\`\`bash
+```bash
 python -m research.pipeline list
 python -m research.pipeline run --quick    # smoke
 python -m research.pipeline run            # frozen protocol (slow)
-\`\`\`
+```
 
 Ad-hoc version lists still use the suite:
 
-\`\`\`bash
+```bash
 python -m research.suite list
 python -m research.suite run --versions original,A
 python -m research.suite run --quick
-\`\`\`
+```
 
 Results land in `research_results/<run>/` (`INDEX.md` for the pipeline, `REPORT.md` for the suite). Details: [`research/README.md`](research/README.md).
 
