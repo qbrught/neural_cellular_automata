@@ -56,27 +56,103 @@ Config flags (also in the UI) isolate paper versions on a shared seed:
 
 ## Project structure
 
-\`\`\`
-config.py              # hyperparameters, seed, version flags
-parameters.py          # per-cell ψ / f MLP weights, batched forward
-state.py               # x, s, h, goals, rho
-grid.py                # Grid container, toroidal Moore-8 gather
-dynamics.py            # message pass, local update, survival
-learning.py            # per-cell loss, locality SGD
-environment.py         # Experiment G overlay (frozen maps)
-simulate.py            # init → steps → trajectory.npz
-visualise.py           # summary / animation / final grid
-run.py                 # CLI
-server.py              # interactive UI
-simulation_engine.py   # background tick thread for the UI
-ui_config.py            # UI field metadata
-discover.py              # guided / random config search
-discovery/              # catalog, prefilter, VLM judge
-research/                # paper versions, suite, thesis pipeline
-experiments/             # one-off scientific probes
-tests/                   # unit tests
-static/                  # UI frontend
-\`\`\`
+Source layout. Comments say what each file is for. Generated output lives in `runs/`, `discoveries/`, and `research_results/` (not listed).
+
+```
+# --- core simulation -------------------------------------------------------
+config.py                    # hyperparameters, seed, ablation flags; saved with every run
+parameters.py                # per-cell ψ / f MLP weights and batched forward
+state.py                     # tensors x, s, h, goals, ρ
+grid.py                      # Grid container + toroidal Moore-8 gather
+dynamics.py                  # message pass, local update, survival rule, goal inheritance
+learning.py                  # per-cell loss, Path-1 locality SGD, coexistence barrier
+environment.py               # Experiment G overlay (frozen occupancy / κ / η maps)
+simulate.py                  # init → n steps → trajectory.npz + config.json + params_final.pt
+visualise.py                 # summary.svg, animation.gif, final-grid / alive-count plots
+run.py                       # CLI for a single simulation
+
+# --- interactive UI --------------------------------------------------------
+server.py                    # FastAPI + WebSocket backend (start / pause / reset / config)
+simulation_engine.py         # background tick thread that streams frames to the browser
+ui_config.py                 # sidebar field metadata (UI_FIELDS) and Config payload conversion
+static/
+  index.html                 # live grid, counters, sliders, download-current-config
+
+# --- automated discovery ---------------------------------------------------
+discover.py                  # CLI: guided / random / seed-only config search
+requirements-discovery.txt   # extra pip deps for discovery (google-genai)
+discovery/
+  loop.py                    # sample → simulate → prefilter → VLM judge → save
+  sample.py                  # random / mutate / VLM-guided Config proposals
+  evidence.py                # run a trial and render summary.png for the judge
+  prefilter.py               # cheap crash / extinction reject before spending a VLM call
+  judge.py                   # Gemini Flash: is this interesting? + next-config proposal
+  catalog.py                 # append-only catalog.jsonl + human-readable catalog.md
+
+# --- research comparisons --------------------------------------------------
+research/
+  README.md                  # suite + thesis pipeline usage
+  versions.py                # paper ablation registry (original, A–G, C_only, D_fixed, …)
+  comparisons.py             # lettered isolations, ladders, and sweeps
+  protocol.py                # frozen seeds, horizon, and base configs for the pipeline
+  pipeline.py                # CLI: run isolations, write reports, functional / embed passes
+  suite.py                   # CLI: ad-hoc version lists (older comparison runner)
+  runner.py                  # one (version × seed) run and rich time series
+  metrics.py                 # Φ, death-rate gap, segregation, residual, … (no simulation)
+  charts.py                  # paper figures from recorded series
+  compare.py                 # cross-version tables and aggregations
+  report.py                  # suite REPORT.md
+  thesis_report.py           # four-chunk pipeline reports
+  spatial.py                 # sparse grid frames and off-vs-on montages
+  stats.py                   # paired seed-level tests (no scipy)
+  functional.py              # probe-bank response maps, Δ, ARI, embeddings
+  functional_analysis.py     # functional pass on a pipeline / suite cache
+  response_analysis.py       # standalone functional-divergence CLI
+  config_sources.py          # resolve base configs and discovery catalogs
+  analyze_class_div.py       # post-suite class-divergence vs the E (w2=w3) baseline
+  _plot_experiment_summary.py  # Φ_late vs min-type map for the experiment summary figure
+  FUNCTIONAL_DIVERGENCE.md   # cell-level response geometry (probe bank, Δ, ARI)
+  SOFT_COEXISTENCE_BRIEF.md  # Experiment F barrier design
+  configs/
+    benchmark.json           # default asymmetric w2/w3 physics
+    benchmark_sym_w.json     # symmetric w2=w3
+    benchmark_sym_w_N40.json # same at N=40
+    benchmark_g_mid.json     # G mid-strength terrain
+    g_custom_inland.json     # hand-authored G islands (no env RNG)
+
+# --- standalone probes -----------------------------------------------------
+experiments/
+  README.md                     # what each probe asks and suggested order
+  _common.py                    # in-memory run_metrics loop (no trajectory round-trip)
+  exp1_frozen_vs_trained.py     # does learning change the pattern vs frozen MLPs?
+  exp2_state_scramble.py        # do cells actually use s and h?
+  exp3_w3_sweep.py              # eliminator penalty vs population balance
+  exp4_convergence.py           # parameter drift at the end of a run
+  exp5_seed_growth.py           # expand / hold / collapse from a small central seed
+  exp6_message_channel_dead.py  # ψ message head is untrained under Path-1 detaches
+
+# --- tests (claimed invariants) --------------------------------------------
+tests/
+  test_survival_rule.py            # hand-checked p_i / hard-update cases
+  test_neighbourhood.py            # Moore-8 gather + toroidal wrap
+  test_simulation_step.py          # forward_step purity, inheritance, bounds
+  test_reproducibility.py          # same seed → bit-exact trajectory
+  test_batched_mlp.py              # per-cell MLP matmul vs a naive loop
+  test_gradient_locality.py        # cell i's gradient only touches params[i]
+  test_vote_consistency.py         # outgoing votes match what neighbours receive
+  test_message_head_dead.py        # message head exact-zero grad under Path-1
+  test_goal_in_f.py                # Step D: goal feature changes f
+  test_coexistence_pressure.py     # Step F barrier
+  test_discovery_sample.py         # discovery sampling / mutate
+  test_environment.py              # G maps, presets, identity skip-path
+  test_environment_config_ui.py    # G Config fields + UI metadata
+  test_environment_dynamics.py     # κ gating, occupancy, skip-path identity
+  test_environment_learning.py     # per-cell η scale, G+F, locality
+  test_environment_suite.py        # VersionSpec G / G_learn pins
+  test_functional_divergence.py    # probe bank + Δ
+  test_functional_analysis.py      # discovery + map-split helpers
+  test_pipeline.py                 # thesis pipeline registry / smoke
+```
 
 ## Quick start
 
