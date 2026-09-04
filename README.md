@@ -16,7 +16,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-That covers simulation, the interactive UI, and tests. Guided discovery needs extra packages — see [Automated config discovery](#automated-config-discovery).
+That covers simulation, the interactive UI, tests, and functional analysis (PCA / UMAP). Guided discovery needs extra packages — see [Automated config discovery](#automated-config-discovery).
 
 ```bash
 python -m pytest tests/ -q
@@ -131,7 +131,7 @@ Config flags (also in the UI) isolate paper versions on a shared seed:
 Source layout. Comments say what each file is for. Generated output lives in `runs/`, `discoveries/`, and `research_results/` (not listed).
 
 ```
-requirements.txt             # sim + UI + tests (torch, numpy, matplotlib, fastapi, …)
+requirements.txt             # sim + UI + tests + functional analysis (sklearn, umap)
 
 # --- core simulation -------------------------------------------------------
 config.py                    # hyperparameters, seed, ablation flags; saved with every run
@@ -165,7 +165,8 @@ discovery/
 
 # --- research comparisons --------------------------------------------------
 research/
-  README.md                  # suite + thesis pipeline usage
+  README.md                  # thesis pipeline first; suite is the older ad-hoc runner
+  THESIS_PIPELINE.md         # frozen protocol, letters, artifact layout
   versions.py                # paper ablation registry (original, A–G, C_only, D_fixed, …)
   comparisons.py             # lettered isolations, ladders, and sweeps
   protocol.py                # frozen seeds, horizon, and base configs for the pipeline
@@ -271,6 +272,6 @@ python -m research.suite run --versions original,A
 python -m research.suite run --quick
 ```
 
-Results land in `research_results/<run>/` (`INDEX.md` for the pipeline, `REPORT.md` for the suite). Details: [`research/README.md`](research/README.md).
+Results land in `research_results/<run>/` (`INDEX.md` for the pipeline, `REPORT.md` for the suite). Details: [`research/README.md`](research/README.md) and [`research/THESIS_PIPELINE.md`](research/THESIS_PIPELINE.md). Full protocol is slow; `--quick` checks the machinery; snapshot numbers for the report are in `research/results_snapshots/`.
 
 Standalone probes (`python -m experiments.exp1_frozen_vs_trained`, …) live in [`experiments/`](experiments/README.md).

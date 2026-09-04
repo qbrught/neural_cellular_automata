@@ -1,21 +1,21 @@
-# Research experiment suite
+# Research comparisons
 
-**Thesis method (isolations + frames + paired tests):**
+The thesis method is `python -m research.pipeline`: lettered isolations, spatial frames, paired tests, and four-chunk reports. Protocol, letters, and artifact layout: [`THESIS_PIPELINE.md`](THESIS_PIPELINE.md). Add a letter in [`comparisons.py`](comparisons.py).
+
+`python -m research.suite` is an older ad-hoc runner (arbitrary version lists, discovery catalogs). Use it only when you want that; it is **not** the report protocol.
 
 ```bash
 python -m research.pipeline list
-python -m research.pipeline run --quick                 # A, 1 seed, short T
+python -m research.pipeline run --quick                 # smoke: letter A, 1 seed, short T
 python -m research.pipeline run                         # frozen protocol (slow)
 python -m research.pipeline run --letters A,B,C --include-ladder
 ```
 
-See [`THESIS_PIPELINE.md`](THESIS_PIPELINE.md). Add a letter in [`comparisons.py`](comparisons.py).
+Default `pipeline run` (no `--letters`) includes **G** / **G_learn**. Those arms are implemented but were **not in the report** — pass `--letters A,B,C,…` to skip them. Full protocol is \(T=4000\) × 20 seeds; `--quick` only checks that the machinery runs. Snapshot numbers for the report live in `research/results_snapshots/`.
 
----
+Results: `research_results/<run>/INDEX.md`.
 
-Central place to **run, measure, chart, and compare** system versions for the paper.
-
-Versions form an ablation path:
+## Versions
 
 | ID | Name | Status |
 | --- | --- | --- |
@@ -28,84 +28,8 @@ Versions form an ablation path:
 | `D` | Goal-conditioned `f` on A+B+C | implemented |
 | `E` | Typed votes + symmetric \(w_2=w_3\) (env ablation) | implemented |
 | `F` | Typed votes + soft coexistence pressure (λ barrier) | implemented |
-| `G` | Typed votes + frozen transfer blobs (`A_env`) | implemented |
-| `G_learn` | Typed votes + learning hotspot (`A_env_learn`) | implemented |
-
-Every suite run produces the same artifact layout so you can drop results into the paper and fill `NOTES.md` with manual UI observations.
-
-## Quick start
-
-From the project root:
-
-```bash
-# List versions
-python -m research.suite list
-
-# Full comparison: original vs A (3 seeds × 500 steps, benchmark config)
-python -m research.suite run --versions original,A
-
-# Faster paper draft (still multi-seed)
-python -m research.suite run --versions original,A --n-steps 400 --seeds 1096812628,42,7
-
-# Smoke test
-python -m research.suite run --quick
-
-# Isolated inheritance vs original (pure C mechanism)
-python -m research.suite run --versions original,C_only --n-steps 400
-
-# Full stack C vs B (inheritance given A+B)
-python -m research.suite run --versions B,C --n-steps 400
-
-# Multi-config: A/B/C on selected discoveries (titles + one-liners from catalog)
-python -m research.suite run --versions A,B,C \
-  --discoveries disc_0001,disc_0003,disc_0005 \
-  --n-steps 400 --seeds 1096812628,42,7 \
-  --name suite_ABC_discoveries
-
-# Same thing with explicit paths
-python -m research.suite run --versions A,B,C \
-  --configs discoveries/disc_0001,discoveries/disc_0003
-
-# All catalog discoveries
-python -m research.suite run --versions A,B,C --discoveries all --n-steps 400
-```
-
-**Single-config** results land in:
-
-```
-research_results/<run_name>/
-  REPORT.md              ← start here (tables + embedded charts)
-  NOTES.md               ← your manual observations template
-  summary.csv            ← all scalars, one row per version×seed
-  manifest.json
-  comparison/            ← overlay charts across versions
-  versions/
-    original/seed_*/     ← per-run panel.png, series.npz, config.json
-    A/seed_*/
-```
-
-**Multi-config** results land in:
-
-```
-research_results/<run_name>/
-  INDEX.md               ← start here (links + cross-config table)
-  REPORT.md              ← short pointer to INDEX + per-config list
-  summary_all.csv        ← all (config, version, seed) rows
-  manifest.json
-  configs/
-    disc_0001/
-      REPORT.md          ← titled "A,B,C on disc_0001" + catalog one-liner
-      comparison/        ← charts titled "Config disc_0001: ..."
-      versions/A|B|C/seed_*/
-    disc_0003/
-      ...
-```
-
-Open `INDEX.md` (multi) or `REPORT.md` (single) after a run.
-
-`--versions all` includes **G** and **G_learn** (two extra arms). `--quick` stays `original,A`. G is transfer-only blobs; G_learn is a center learning hotspot. `env_seed` is not pinned, so suite `--seeds` share terrain. Overlay lives on `simulate.run` + `visualise.render_summary`, not on suite `panel.png`.
-
-Hand-authored terrain: put `env_preset: "custom"` and an `env_regions` list on the base JSON (see `research/configs/g_custom_inland.json`). `apply(G)` keeps those regions instead of pinning `blobs`. A still runs homogeneous (flag off).
+| `G` | Typed votes + frozen transfer blobs (`A_env`) | implemented (not in the report) |
+| `G_learn` | Typed votes + learning hotspot (`A_env_learn`) | implemented (not in the report) |
 
 ## What is measured
 
@@ -124,27 +48,19 @@ Hand-authored terrain: put `env_preset: "custom"` and an `env_regions` list on t
 | extinction | Viability cost of the change |
 | functional Δ / ARI | Cell-level response geometry (not a count residual) |
 
-## Functional divergence (after a mix pipeline or suite)
+## Functional divergence
 
-Same lettered arms and paired tests as mix Φ, on probe-response vectors. PCA/UMAP is a second pass.
+Same lettered arms and paired tests as mix Φ, on probe-response vectors. PCA/UMAP is a second pass (`scikit-learn` / `umap-learn` in `requirements.txt`).
 
 ```bash
-# Mix-Φ lettered pipeline (writes cache/ + INDEX.md)
 python -m research.pipeline run --letters A,B,C --include-ladder --quick
-
-# Scores / paired tests (FUNCTIONAL_INDEX.md, functional_comparisons/<letter>/)
 python -m research.pipeline functional research_results/<run_name>
-# equivalent: python -m research.functional_analysis compare research_results/<run_name>
-
-# PCA/UMAP (functional_compare/)
 python -m research.pipeline embed research_results/<run_name>
 ```
 
-Late snapshots (`params_final.pt`, `state_final.pt`) are written by the runner. Re-run sims if an older cache lacks them.
+Late snapshots (`params_final.pt`, `state_final.pt`) are written by the runner. Re-run sims if an older cache lacks them. Design: [`FUNCTIONAL_DIVERGENCE.md`](FUNCTIONAL_DIVERGENCE.md).
 
-## Interactive UI (manual observations)
-
-The server still runs the live system. Version flags are exposed as toggles:
+## Interactive UI
 
 ```bash
 python server.py
@@ -153,50 +69,46 @@ python server.py
 
 | Flag | UI label | Version |
 | --- | --- | --- |
-| `typed_votes` | Typed votes A | original=0, A/B=1 |
-| `predator_prey_loss` | Pred-prey loss B | A=0, B=1 |
-| `goal_inheritance` | Goal inherit C | B=0, C=1 (births adopt majority neighbour goal) |
-| `goal_in_f` | Goal in f D | (reserved) |
+| `typed_votes` | Typed votes A | original=off, A+=on |
+| `predator_prey_loss` | Pred-prey loss B | |
+| `goal_inheritance` | Goal inherit C | births adopt majority neighbour goal |
+| `goal_in_f` | Goal in f D | own goal is an input to *f* |
+| `coexistence_pressure` | Coexist pressure F | soft barrier on both types' living mass |
 | `learn_messages` | Learn messages | off=Path-1 (message head dead); on=one-hop live M |
-| `environment_heterogeneous` | Heterogeneous env G | overlay: transfer blobs / learning hotspot / occupancy |
 
-**Workflow for writing:**
+Experiment G controls are hidden in the UI (not in the report). Enable G from a Config JSON via `python run.py --config …`.
 
-1. Run the suite → get quantitative `REPORT.md`.
-2. In the UI, set the same seed as a suite seed, toggle `typed_votes` 0 vs 1.
-3. Write qualitative notes into that run’s `NOTES.md`.
+Workflow: run the pipeline → `INDEX.md` / per-letter `REPORT.md`; in the UI, match a pipeline seed and toggle the same flags; write notes into that comparison’s `NOTES.md`.
 
-## Adding step B / C / D
+## Adding a letter
 
-1. Implement the mechanism behind a Config flag (already reserved in `config.py`).
-2. Set `implemented=True` on that version in `research/versions.py` and set the flags.
-3. Re-run:
+1. Implement the Config flag.
+2. Add a `VersionSpec` in [`versions.py`](versions.py) and a `Comparison` in [`comparisons.py`](comparisons.py).
+3. `python -m research.pipeline list` then `python -m research.pipeline run --letters <id> --quick`.
+
+## Ad-hoc suite (older)
+
+Arbitrary version lists and discovery catalogs, **not** the frozen thesis protocol (suite default horizon is the JSON `n_steps`, usually 500; pipeline is 4000 × 20 seeds).
 
 ```bash
-python -m research.suite run --versions original,A,B
+python -m research.suite list
+python -m research.suite run --versions original,A
+python -m research.suite run --quick
+python -m research.suite run --versions A,B,C \
+  --discoveries disc_0001,disc_0003,disc_0005 \
+  --n-steps 400 --seeds 1096812628,42,7 \
+  --name suite_ABC_discoveries
 ```
 
-No chart/report code changes needed — new versions plug into the same suite.
+Single-config results: `research_results/<run>/REPORT.md`. Multi-config: `INDEX.md`. `--versions all` includes G and G_learn.
 
-## Fair comparison design
-
-- Shared **base config** per arm: default `research/configs/benchmark.json`, or any discovery / JSON via `--config` / `--configs` / `--discoveries`.
-- Shared **seeds** across versions (and across configs in a multi-config suite).
-- Only **version flags** differ between arms; survival weights / η / init density come from the base config.
-- Catalog one-liners (from `discoveries/catalog.jsonl`) are attached as config titles in reports and chart headings.
-- `typed_votes=False` keeps the dual ψ heads for parameter-count parity but routes only the help head to all receivers (`V_foe=0`) — isolating the *routing* mechanism of step A.
+Fair-comparison rules still apply: shared base config and seeds; only version flags differ. `typed_votes=False` keeps dual ψ heads for parameter-count parity but routes only the help head (`V_foe=0`).
 
 ## Relation to `experiments/`
 
 | Folder | Purpose |
 | --- | --- |
-| `experiments/` | One-off scientific questions (frozen vs trained, w3 sweep, …) |
-| `research/` | **Version ablation suite** for the paper narrative (original→A→B→C→D) |
+| `experiments/` | One-off probes (frozen vs trained, w3 sweep, …) |
+| `research/` | Lettered isolations for the report (`pipeline`; suite is leftover) |
 
-**Channel audit (not a version ablation):** `experiments/exp6_message_channel_dead`
-proves mathematically and empirically that ψ’s message head $W_2^{(m)}$ is
-gradient-dead under Path-1 (`stopgrad(M)`), which is the **default**
-(`Config.learn_messages=False`). Set `learn_messages=True` (UI: “Learn
-messages”) to train the message head via one-hop leakage into senders’ ψ.
-Use exp6’s `REPORT.md` whenever the paper discusses learned signalling.
-Unit tests: `tests/test_message_head_dead.py`.
+**Channel audit (not a version ablation):** `experiments/exp6_message_channel_dead` proves ψ’s message head is gradient-dead under Path-1 (`Config.learn_messages=False`). Unit tests: `tests/test_message_head_dead.py`.

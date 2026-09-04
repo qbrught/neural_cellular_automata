@@ -1,4 +1,5 @@
-# Simulation, interactive UI, and tests. Discovery extras: requirements-discovery.txt
+# Simulation, interactive UI, tests, and functional analysis.
+# Discovery extras: requirements-discovery.txt
 torch
 numpy
 matplotlib
@@ -6,3 +7,5 @@ fastapi
 uvicorn
 websockets
 pytest
+scikit-learn
+umap-learn

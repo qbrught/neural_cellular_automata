@@ -1,24 +1,27 @@
 # Experiments
 
-Standalone scripts for probing the NCSA system. Each runs from the project
-root, saves output under `runs/exp*/`, and prints a text summary.
+Standalone probes of the NCSA system. Each runs from the project root, saves
+output under `runs/exp*/`, and prints a text summary.
 
-**For paper version comparisons (original → A → B → C → D)** use the
-centralized suite instead: `python -m research.suite run` — see
-[`../research/README.md`](../research/README.md).
+These are **not** the paper version comparisons. For original / A–F isolations
+use the thesis pipeline:
 
-Run any with:  `python -m experiments.exp1_frozen_vs_trained`
+```bash
+python -m research.pipeline list
+python -m research.pipeline run --quick
+```
+
+See [`../research/README.md`](../research/README.md) and
+[`../research/THESIS_PIPELINE.md`](../research/THESIS_PIPELINE.md).
+
+Run any probe with: `python -m experiments.exp1_frozen_vs_trained`
 
 Most import `_common.run_metrics`, which runs a sim and returns per-step
 metrics as numpy arrays in memory (no file round-trip). If `forward_step` /
 `gradient_step` signatures change, only `_common.py` needs updating.
+`Config.learn` (default `True`) is the freeze switch used by exp1 / exp2.
 
-Note: exp1, exp2 and the `learn=False` paths assume the local `learn` flag on
-Config. If it's absent, `run_metrics` still runs but the learn toggle is a
-no-op (everything trains). Add the flag (see chat notes) for the frozen
-comparisons to mean anything.
-
-## The five
+## The six
 
 **exp1_frozen_vs_trained** — Does learning contribute, or would frozen
 random-init MLPs produce the same patterns? Compares N seeds each way.

@@ -1,12 +1,7 @@
-"""Research experiment suite for paper-ready version comparisons.
+"""Research comparisons for paper versions (original, A–G).
 
-Compare system versions (original, A, B, C, D) under fixed seeds with
-shared metrics, charts, and markdown reports.
-
-Quick start:
-    python -m research.suite run --versions original,A --n-steps 400
-    python -m research.suite list
-    open research_results/<run_id>/REPORT.md
+Thesis entry: python -m research.pipeline
+Ad-hoc version lists: python -m research.suite
 """
 
 from research.versions import VERSIONS, VersionSpec, get_version
