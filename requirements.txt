@@ -1,0 +1,8 @@
+# Simulation, interactive UI, and tests. Discovery extras: requirements-discovery.txt
+torch
+numpy
+matplotlib
+fastapi
+uvicorn
+websockets
+pytest

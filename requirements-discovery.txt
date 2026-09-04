@@ -1,2 +1,2 @@
-# Extra deps for automated config discovery (on top of torch/numpy/matplotlib).
+# Extra deps for automated config discovery (on top of requirements.txt).
 google-genai>=1.0.0

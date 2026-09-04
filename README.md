@@ -6,6 +6,78 @@ A 2D cellular automaton where each cell has a goal (reproduce or eliminate) and 
 
 *20×20 grid, 300 steps. Green = alive reproducer, red = alive eliminator, dark = dead.*
 
+## Setup
+
+Python 3.10+. From the **repo root**:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+That covers simulation, the interactive UI, and tests. Guided discovery needs extra packages — see [Automated config discovery](#automated-config-discovery).
+
+```bash
+python -m pytest tests/ -q
+```
+
+## Run a simulation
+
+`run.py` is the CLI. Always run it from the repo root. Default `n_steps` is **4000** (slow on CPU); pass `--n-steps` for a shorter first run.
+
+```bash
+python run.py --n-steps 300 --visualise
+```
+
+Uses the default `Config` (20×20 grid, learning on, typed votes). Writes a timestamped folder:
+
+```
+runs/<timestamp>/
+  config.json          # exact knobs for this run
+  trajectory.npz       # per-step grid, goals, counts, losses
+  params_final.pt      # final ψ / f weights
+  summary.svg          # with --visualise: final grid + time series
+  animation.gif        # with --visualise (skip with --no-animation)
+```
+
+Without `--visualise` you still get the JSON / npz / weights — just no plots.
+
+```bash
+# Override knobs on the default config
+python run.py --seed 7 --n-steps 500 --visualise
+
+# Load a saved Config JSON (CLI flags still override fields)
+python run.py --config research/configs/benchmark.json --visualise
+python run.py --config path/to/config.json --seed 7 --n-steps 500 --visualise
+
+# Extra plots only (no animation)
+python run.py --n-steps 300 --final-grid --alive-count
+
+# Name the output folder
+python run.py --n-steps 300 --run-name my_run --visualise
+```
+
+`--output-dir` sets the parent directory (default `runs/`). `--quiet` hides the progress printout.
+
+## Interactive UI
+
+Same environment as above. From the repo root:
+
+```bash
+python server.py
+```
+
+Then open [http://127.0.0.1:8765](http://127.0.0.1:8765). The grid loads **paused** — click **Start**.
+
+- Sidebar sliders for Config fields used in the report (A–F)
+- Start / pause / reset; live grid and counters; speed
+- **Download current config** as JSON, then re-run it with `python run.py --config …`
+- Blank `n_steps` runs indefinitely
+- New fields appear once listed in `UI_FIELDS` (`ui_config.py`)
+
+Experiment G terrain controls (presets, custom regions, click-to-paint islands) are commented out of the UI because G is extra relative to the report. The engine still supports them; uncomment the G block in `ui_config.py` / `static/index.html` to restore.
+
 ## How it works
 
 Each cell $i$ holds an alive flag $x_i$, an observable state $s_i$, a memory $h_i$, a goal $g_i \in \{\text{reproduce}, \text{eliminate}\}$, and a communication rate $\rho_i$. Two per-cell 1-hidden-layer MLPs run every step:
@@ -59,6 +131,8 @@ Config flags (also in the UI) isolate paper versions on a shared seed:
 Source layout. Comments say what each file is for. Generated output lives in `runs/`, `discoveries/`, and `research_results/` (not listed).
 
 ```
+requirements.txt             # sim + UI + tests (torch, numpy, matplotlib, fastapi, …)
+
 # --- core simulation -------------------------------------------------------
 config.py                    # hyperparameters, seed, ablation flags; saved with every run
 parameters.py                # per-cell ψ / f MLP weights and batched forward
@@ -154,39 +228,12 @@ tests/
   test_pipeline.py                 # thesis pipeline registry / smoke
 ```
 
-## Quick start
-
-```bash
-pip install torch numpy matplotlib
-python run.py --visualise                         # defaults
-python run.py --seed 7 --n-steps 500 --visualise  # overrides
-python run.py --config path/to/config.json --visualise
-```
-
-Writes `runs/<name>/` with `config.json`, `trajectory.npz`, `params_final.pt`, and (with `--visualise`) `summary.svg` plus `animation.gif`. Extra plots: `--final-grid`, `--alive-count`.
-
-```bash
-python -m pytest tests/ -q
-```
-
-## Interactive UI
-
-```bash
-pip install fastapi uvicorn websockets
-python server.py
-# open http://127.0.0.1:8765
-```
-
-Sidebar sliders for Config fields used in the report (A–F); start / pause / reset; live grid and counters; speed control; download-current-config. Blank `n_steps` runs indefinitely. New fields appear automatically once listed in `UI_FIELDS` (`ui_config.py`).
-
-Experiment G terrain controls (presets, custom regions, click-to-paint islands) are commented out of the UI because G is extra relative to the report. The engine still supports them; uncomment the G block in `ui_config.py` / `static/index.html` to restore.
-
 ## Automated config discovery
 
 Search with learning on: simulate → prefilter obvious crashes → **Gemini Flash** judges the summary plot and proposes the next config. `--no-guided` is pure random; `--dry-run` uses a heuristic instead of the API.
 
 ```bash
-pip install -r requirements-discovery.txt
+pip install -r requirements-discovery.txt   # google-genai, on top of requirements.txt
 export GEMINI_API_KEY=...          # or GOOGLE_API_KEY, or a .env file
 
 python discover.py --max-cycles 30 --target-discoveries 5
